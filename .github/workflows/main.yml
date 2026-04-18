@@ -1,0 +1,93 @@
+name: guywteiwuyv5.2.5
+
+on:
+  workflow_dispatch:
+    inputs:
+      generation:
+        default: '1'
+  repository_dispatch:
+    types: [trigger_vps]
+
+jobs:
+  vps-runtime:
+    runs-on: ubuntu-latest
+    env:
+      IDRIVE_ACCESS_KEY: ${{ secrets.IDRIVE_ACCESS_KEY }}
+      IDRIVE_SECRET_KEY: ${{ secrets.IDRIVE_SECRET_KEY }}
+      IDRIVE_ENDPOINT: ${{ secrets.IDRIVE_ENDPOINT }}
+      BUCKET_NAME: "storage"
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Provision & Pull
+        run: |
+          sudo npm install -g pm2
+          chmod +x install.sh
+          ./install.sh
+          echo "/usr/local/bin" >> $GITHUB_PATH
+
+      - name: Restore PM2 State
+        run: |
+          echo "⏳ Waiting for environment synchronization..."
+          while [ ! -f /home/runner/.files_ready ]; do sleep 2; done
+          while [ ! -f /home/runner/.deps_ready ]; do sleep 2; done
+          
+          pm2 ping
+          if [ -f /home/runner/.pm2/dump.pm2 ]; then
+            echo "✅ dump.pm2 found. Attempting resurrection..."
+            pm2 resurrect || echo "⚠️ No processes to restore."
+            pm2 restart all --update-env || echo "No active processes."
+          else
+            echo "ℹ️ No previous state found. Ready for setup."
+          fi
+
+      - name: Background Sync Loop
+        run: |
+          (
+            while true; do
+              sleep 180
+              pm2 save --force > /dev/null 2>&1
+              nice -n 19 rclone sync /home/runner idrive:$BUCKET_NAME \
+                --exclude "actions-runner/**" \
+                --exclude ".github/**" \
+                --exclude "**/node_modules/**" \
+                --exclude ".pm2/*.sock" \
+                --exclude ".pm2/*.pid" \
+                --exclude ".cache/**" --quiet
+            done
+          ) &
+
+      - name: 5.5-Hour Cross-Account Handoff
+        env:
+          # N_GH_TOKEN = The PAT of the OTHER account
+          # REPO = The 'Username/Repo' of the OTHER account
+          REMOTE_TOKEN: ${{ secrets.N_GH_TOKEN }}
+          REMOTE_REPO: ${{ secrets.REPO }}
+        run: |
+          # Jitter sleep for stealth (approx 5.2 to 5.5 hours)
+          sleep $((19000 + RANDOM % 900))
+          
+          echo "🚨 Starting handoff to $REMOTE_REPO..."
+          pm2 save --force
+          rclone sync /home/runner idrive:$BUCKET_NAME \
+            --exclude "actions-runner/**" \
+            --exclude "**/node_modules/**" \
+            --exclude ".pm2/*.sock" \
+            --exclude ".pm2/*.pid" \
+            --exclude ".cache/**"
+          
+          # Logic to handle both manual and API triggers
+          CURRENT_GEN=${{ github.event.inputs.generation || github.event.client_payload.generation || 1 }}
+          NEXT_GEN=$(( CURRENT_GEN + 1 ))
+          
+          # The Dispatch Call
+          curl -L -X POST \
+            -H "Authorization: token $REMOTE_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/$REMOTE_REPO/dispatches \
+            -d "{\"event_type\": \"trigger_vps\", \"client_payload\": {\"generation\": \"$NEXT_GEN\"}}"
+          
+          echo "✅ Signal sent to next account. Generation $NEXT_GEN pending."
+          sleep 600
