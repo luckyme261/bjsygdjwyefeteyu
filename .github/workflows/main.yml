@@ -1,4 +1,4 @@
-name: Project-Staging-Module-V5.4
+name: Project-Module-V5.4.5
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ jobs:
       R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
       R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
       R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-      BUCKET_NAME: "vps-storage"
+      BUCKET_NAME: "storage"
     
     steps:
       - name: Checkout
@@ -33,21 +33,17 @@ jobs:
           PREV_TOKEN: ${{ secrets.PREV_GH_TOKEN }}
           PREV_REPO: ${{ secrets.PREV_REPO }}
         run: |
-          # Wait for bootloader signals
           while [ ! -f /home/runner/.files_ready ]; do sleep 2; done
           while [ ! -f /home/runner/.deps_ready ]; do sleep 2; done
           
-          # Initialize PM2
           pm2 ping
           if [ -f /home/runner/.pm2/dump.pm2 ]; then
             pm2 resurrect || true
             pm2 restart all --update-env || true
           fi
           
-          # SIGNAL PREVIOUS ACCOUNT TO SHUT DOWN
-          # This only triggers if this run was started by a 'trigger_vps' event
           if [ "${{ github.event_type }}" == "trigger_vps" ]; then
-             echo "🚀 New Runner is ready. Signaling $PREV_REPO to stop..."
+             echo "🚀 New Runner Ready. Signaling $PREV_REPO to stop..."
              curl -L -X POST \
               -H "Authorization: token $PREV_TOKEN" \
               -H "Accept: application/vnd.github.v3+json" \
@@ -55,16 +51,18 @@ jobs:
               -d "{\"event_type\": \"shutdown_previous\"}"
           fi
 
-      - name: Background Incremental Sync
+      - name: Background Incremental Sync (10-Minute Loop)
         run: |
           (
             while true; do
-              sleep 300
+              sleep 600
               pm2 save --force > /dev/null 2>&1
               nice -n 19 rclone sync /home/runner r2_storage:$BUCKET_NAME \
-                --exclude "actions-runner/**" --exclude ".github/**" \
-                --exclude "**/node_modules/**" --exclude ".pm2/*.sock" \
-                --exclude ".pm2/*.pid" --exclude ".cache/**" \
+                --exclude "actions-runner/**" \
+                --exclude "_work/**" \
+                --exclude "**/node_modules/**" \
+                --exclude ".npm/**" \
+                --exclude ".cache/**" \
                 --checksum --fast-list --quiet
             done
           ) &
@@ -74,16 +72,18 @@ jobs:
           NEXT_TOKEN: ${{ secrets.N_GH_TOKEN }}
           NEXT_REPO: ${{ secrets.REPO }}
         run: |
-          # Wait 5 hours + random jitter (up to 15 mins)
           sleep $((18000 + RANDOM % 900))
           
-          echo "🚨 Triggering next account for overlap..."
+          echo "🚨 Triggering next account for zero-downtime..."
           pm2 save --force
           rclone sync /home/runner r2_storage:$BUCKET_NAME \
-            --exclude "actions-runner/**" --exclude "**/node_modules/**" \
+            --exclude "actions-runner/**" \
+            --exclude "_work/**" \
+            --exclude "**/node_modules/**" \
+            --exclude ".npm/**" \
+            --exclude ".cache/**" \
             --checksum --fast-list
           
-          # Pass generation number
           CURRENT_GEN=${{ github.event.inputs.generation || github.event.client_payload.generation || 1 }}
           NEXT_GEN=$(( CURRENT_GEN + 1 ))
           
@@ -93,17 +93,13 @@ jobs:
             https://api.github.com/repos/$NEXT_REPO/dispatches \
             -d "{\"event_type\": \"trigger_vps\", \"client_payload\": {\"generation\": \"$NEXT_GEN\"}}"
           
-          echo "⏳ Handoff sent. Waiting for shutdown signal..."
-          
-          # Infinite loop that stops only when the 'shutdown_previous' signal creates this file
+          echo "⏳ Waiting for shutdown signal..."
           until [ -f /tmp/stop_signal ]; do
             sleep 10
           done
-          echo "🛑 Received shutdown signal. Generation complete."
+          echo "🛑 Shutting down."
 
       - name: Receive Shutdown Signal
         if: github.event_type == 'shutdown_previous'
-        run: |
-          # This step only runs if the API call is 'shutdown_previous'
-          # It creates the file that breaks the loop in the step above
-          touch /tmp/stop_signal
+        run: touch /tmp/stop_signal
+        
