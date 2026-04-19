@@ -1,60 +1,51 @@
 #!/bin/bash
-echo "🚀 V5.2.2: Native Home Persistence"
+echo "🚀 V5.4: Zero-Downtime Overlap Bootloader"
 
-# 1. Install Core Tools
+# 1. Core Tools
 sudo curl https://rclone.org/install.sh | sudo bash
-sudo apt-get update && sudo apt-get install -y jq micro htop ncdu btop tmate openssh-server
+sudo apt-get update && sudo apt-get install -y jq micro htop ncdu openssh-server
 
-# 2. Cloudflared & SSH Setup
+# 2. Cloudflared & SSH
 curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
 sudo dpkg -i cloudflared.deb && rm cloudflared.deb
 sudo service ssh start
 echo "runner:runner" | sudo chpasswd
+
+# IMPORTANT: Same Tunnel Token on all accounts
 sudo cloudflared service install eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGEiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9
 
-# 3. Rclone Configuration
+# 3. Rclone R2 Config
 mkdir -p ~/.config/rclone
 cat <<EOF > ~/.config/rclone/rclone.conf
-[idrive]
+[r2_storage]
 type = s3
-provider = Other
-access_key_id = $IDRIVE_ACCESS_KEY
-secret_access_key = $IDRIVE_SECRET_KEY
-endpoint = $IDRIVE_ENDPOINT
-region = us-west-2
+provider = Cloudflare
+access_key_id = $R2_ACCESS_KEY
+secret_access_key = $R2_SECRET_KEY
+endpoint = $R2_ENDPOINT
+acl = private
 EOF
 
-# 4. INITIAL PULL: Pull the entire home directory state
-echo "📥 Syncing state from iDrive..."
-rclone copy idrive:$BUCKET_NAME /home/runner \
-    --exclude "actions-runner/**" \
-    --exclude "**/node_modules/**" \
-    --exclude ".pm2/*.sock" \
-    --exclude ".pm2/*.pid" \
-    --exclude ".cache/**" \
-    --progress
+# 4. INITIAL SMART PULL (Hash-based)
+echo "📥 Syncing Home state from R2..."
+rclone copy r2_storage:$BUCKET_NAME /home/runner \
+    --exclude "actions-runner/**" --exclude "**/node_modules/**" \
+    --checksum --transfers 8 --progress
 
-# Signal that files are now on disk
 touch /home/runner/.files_ready
 
-# 5. Dependency Installation
-echo "📦 Refreshing dependencies..."
+# 5. Dependency Install
 find /home/runner -name "package.json" -not -path "*/node_modules/*" -execdir npm install --no-audit --no-fund \;
-
-# Signal that dependencies are ready
 touch /home/runner/.deps_ready
 
-# 6. Native .bashrc Update (Persistence for your session)
+# 6. Aliases
 if ! grep -q "ETERNAL_VPS_MARKER" /home/runner/.bashrc; then
     cat <<EOF >> /home/runner/.bashrc
 
 # --- ETERNAL_VPS_MARKER ---
 alias save='pm2 save --force'
-alias push='rclone sync /home/runner idrive:\$BUCKET_NAME --exclude "actions-runner/**" --exclude "**/node_modules/**" --exclude ".pm2/*.sock" --exclude ".pm2/*.pid" --exclude ".cache/**" --progress'
+alias push='rclone sync /home/runner r2_storage:\$BUCKET_NAME --exclude "actions-runner/**" --exclude "**/node_modules/**" --checksum --progress'
 alias status='pm2 status'
-alias logs='pm2 logs'
 # --- END_MARKER ---
 EOF
 fi
-
-echo "Ready."
