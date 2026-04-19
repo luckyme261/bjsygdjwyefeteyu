@@ -1,4 +1,4 @@
-name: guywteiwuyv5.2.5
+name: Project-Staging-Module-V5.4
 
 on:
   workflow_dispatch:
@@ -6,16 +6,16 @@ on:
       generation:
         default: '1'
   repository_dispatch:
-    types: [trigger_vps]
+    types: [trigger_vps, shutdown_previous]
 
 jobs:
   vps-runtime:
     runs-on: ubuntu-latest
     env:
-      IDRIVE_ACCESS_KEY: ${{ secrets.IDRIVE_ACCESS_KEY }}
-      IDRIVE_SECRET_KEY: ${{ secrets.IDRIVE_SECRET_KEY }}
-      IDRIVE_ENDPOINT: ${{ secrets.IDRIVE_ENDPOINT }}
-      BUCKET_NAME: "storage"
+      R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
+      R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      BUCKET_NAME: "vps-storage"
     
     steps:
       - name: Checkout
@@ -28,66 +28,82 @@ jobs:
           ./install.sh
           echo "/usr/local/bin" >> $GITHUB_PATH
 
-      - name: Restore PM2 State
+      - name: Restore State & Kill Predecessor
+        env:
+          PREV_TOKEN: ${{ secrets.PREV_GH_TOKEN }}
+          PREV_REPO: ${{ secrets.PREV_REPO }}
         run: |
-          echo "⏳ Waiting for environment synchronization..."
+          # Wait for bootloader signals
           while [ ! -f /home/runner/.files_ready ]; do sleep 2; done
           while [ ! -f /home/runner/.deps_ready ]; do sleep 2; done
           
+          # Initialize PM2
           pm2 ping
           if [ -f /home/runner/.pm2/dump.pm2 ]; then
-            echo "✅ dump.pm2 found. Attempting resurrection..."
-            pm2 resurrect || echo "⚠️ No processes to restore."
-            pm2 restart all --update-env || echo "No active processes."
-          else
-            echo "ℹ️ No previous state found. Ready for setup."
+            pm2 resurrect || true
+            pm2 restart all --update-env || true
+          fi
+          
+          # SIGNAL PREVIOUS ACCOUNT TO SHUT DOWN
+          # This only triggers if this run was started by a 'trigger_vps' event
+          if [ "${{ github.event_type }}" == "trigger_vps" ]; then
+             echo "🚀 New Runner is ready. Signaling $PREV_REPO to stop..."
+             curl -L -X POST \
+              -H "Authorization: token $PREV_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/$PREV_REPO/dispatches \
+              -d "{\"event_type\": \"shutdown_previous\"}"
           fi
 
-      - name: Background Sync Loop
+      - name: Background Incremental Sync
         run: |
           (
             while true; do
-              sleep 180
+              sleep 300
               pm2 save --force > /dev/null 2>&1
-              nice -n 19 rclone sync /home/runner idrive:$BUCKET_NAME \
-                --exclude "actions-runner/**" \
-                --exclude ".github/**" \
-                --exclude "**/node_modules/**" \
-                --exclude ".pm2/*.sock" \
-                --exclude ".pm2/*.pid" \
-                --exclude ".cache/**" --quiet
+              nice -n 19 rclone sync /home/runner r2_storage:$BUCKET_NAME \
+                --exclude "actions-runner/**" --exclude ".github/**" \
+                --exclude "**/node_modules/**" --exclude ".pm2/*.sock" \
+                --exclude ".pm2/*.pid" --exclude ".cache/**" \
+                --checksum --fast-list --quiet
             done
           ) &
 
-      - name: 5.5-Hour Cross-Account Handoff
+      - name: Early Handoff Trigger (5.0h)
         env:
-          # N_GH_TOKEN = The PAT of the OTHER account
-          # REPO = The 'Username/Repo' of the OTHER account
-          REMOTE_TOKEN: ${{ secrets.N_GH_TOKEN }}
-          REMOTE_REPO: ${{ secrets.REPO }}
+          NEXT_TOKEN: ${{ secrets.N_GH_TOKEN }}
+          NEXT_REPO: ${{ secrets.REPO }}
         run: |
-          # Jitter sleep for stealth (approx 5.2 to 5.5 hours)
-          sleep $((19000 + RANDOM % 900))
+          # Wait 5 hours + random jitter (up to 15 mins)
+          sleep $((18000 + RANDOM % 900))
           
-          echo "🚨 Starting handoff to $REMOTE_REPO..."
+          echo "🚨 Triggering next account for overlap..."
           pm2 save --force
-          rclone sync /home/runner idrive:$BUCKET_NAME \
-            --exclude "actions-runner/**" \
-            --exclude "**/node_modules/**" \
-            --exclude ".pm2/*.sock" \
-            --exclude ".pm2/*.pid" \
-            --exclude ".cache/**"
+          rclone sync /home/runner r2_storage:$BUCKET_NAME \
+            --exclude "actions-runner/**" --exclude "**/node_modules/**" \
+            --checksum --fast-list
           
-          # Logic to handle both manual and API triggers
+          # Pass generation number
           CURRENT_GEN=${{ github.event.inputs.generation || github.event.client_payload.generation || 1 }}
           NEXT_GEN=$(( CURRENT_GEN + 1 ))
           
-          # The Dispatch Call
           curl -L -X POST \
-            -H "Authorization: token $REMOTE_TOKEN" \
+            -H "Authorization: token $NEXT_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/$REMOTE_REPO/dispatches \
+            https://api.github.com/repos/$NEXT_REPO/dispatches \
             -d "{\"event_type\": \"trigger_vps\", \"client_payload\": {\"generation\": \"$NEXT_GEN\"}}"
           
-          echo "✅ Signal sent to next account. Generation $NEXT_GEN pending."
-          sleep 600
+          echo "⏳ Handoff sent. Waiting for shutdown signal..."
+          
+          # Infinite loop that stops only when the 'shutdown_previous' signal creates this file
+          until [ -f /tmp/stop_signal ]; do
+            sleep 10
+          done
+          echo "🛑 Received shutdown signal. Generation complete."
+
+      - name: Receive Shutdown Signal
+        if: github.event_type == 'shutdown_previous'
+        run: |
+          # This step only runs if the API call is 'shutdown_previous'
+          # It creates the file that breaks the loop in the step above
+          touch /tmp/stop_signal
