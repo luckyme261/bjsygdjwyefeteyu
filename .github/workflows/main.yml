@@ -1,4 +1,4 @@
-name: Project-Module-V5.4.5
+name: Project-Module-V5.5
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       generation:
         default: '1'
   repository_dispatch:
-    types: [trigger_vps, shutdown_previous]
+    types: [trigger_vps]
 
 jobs:
   vps-runtime:
@@ -28,10 +28,7 @@ jobs:
           ./install.sh
           echo "/usr/local/bin" >> $GITHUB_PATH
 
-      - name: Restore State & Kill Predecessor
-        env:
-          PREV_TOKEN: ${{ secrets.PREV_GH_TOKEN }}
-          PREV_REPO: ${{ secrets.PREV_REPO }}
+      - name: Restore PM2 State
         run: |
           while [ ! -f /home/runner/.files_ready ]; do sleep 2; done
           while [ ! -f /home/runner/.deps_ready ]; do sleep 2; done
@@ -41,49 +38,43 @@ jobs:
             pm2 resurrect || true
             pm2 restart all --update-env || true
           fi
-          
-          if [ "${{ github.event_type }}" == "trigger_vps" ]; then
-             echo "🚀 New Runner Ready. Signaling $PREV_REPO to stop..."
-             curl -L -X POST \
-              -H "Authorization: token $PREV_TOKEN" \
-              -H "Accept: application/vnd.github.v3+json" \
-              https://api.github.com/repos/$PREV_REPO/dispatches \
-              -d "{\"event_type\": \"shutdown_previous\"}"
-          fi
 
       - name: Background Incremental Sync (10-Minute Loop)
+        id: sync_loop
         run: |
           (
             while true; do
               sleep 600
+              # Check if a freeze is in progress
+              if [ -f /tmp/vps_frozen ]; then break; fi
+              
               pm2 save --force > /dev/null 2>&1
               nice -n 19 rclone sync /home/runner r2_storage:$BUCKET_NAME \
-                --exclude "actions-runner/**" \
-                --exclude "_work/**" \
-                --exclude "**/node_modules/**" \
-                --exclude ".npm/**" \
-                --exclude ".cache/**" \
+                --exclude "actions-runner/**" --exclude "_work/**" \
+                --exclude "**/node_modules/**" --exclude ".npm/**" --exclude ".cache/**" \
                 --checksum --fast-list --quiet
             done
           ) &
 
-      - name: Early Handoff Trigger (5.0h)
+      - name: 5-Hour Timed Handoff
         env:
           NEXT_TOKEN: ${{ secrets.N_GH_TOKEN }}
           NEXT_REPO: ${{ secrets.REPO }}
         run: |
+          # Wait 5 hours + random jitter
           sleep $((18000 + RANDOM % 900))
           
-          echo "🚨 Triggering next account for zero-downtime..."
+          echo "❄️ Freezing state and performing final backup..."
+          touch /tmp/vps_frozen
           pm2 save --force
+          
+          # Final Master Sync
           rclone sync /home/runner r2_storage:$BUCKET_NAME \
-            --exclude "actions-runner/**" \
-            --exclude "_work/**" \
-            --exclude "**/node_modules/**" \
-            --exclude ".npm/**" \
-            --exclude ".cache/**" \
+            --exclude "actions-runner/**" --exclude "_work/**" \
+            --exclude "**/node_modules/**" --exclude ".npm/**" --exclude ".cache/**" \
             --checksum --fast-list
           
+          echo "🚀 Triggering next account: $NEXT_REPO"
           CURRENT_GEN=${{ github.event.inputs.generation || github.event.client_payload.generation || 1 }}
           NEXT_GEN=$(( CURRENT_GEN + 1 ))
           
@@ -93,13 +84,7 @@ jobs:
             https://api.github.com/repos/$NEXT_REPO/dispatches \
             -d "{\"event_type\": \"trigger_vps\", \"client_payload\": {\"generation\": \"$NEXT_GEN\"}}"
           
-          echo "⏳ Waiting for shutdown signal..."
-          until [ -f /tmp/stop_signal ]; do
-            sleep 10
-          done
-          echo "🛑 Shutting down."
-
-      - name: Receive Shutdown Signal
-        if: github.event_type == 'shutdown_previous'
-        run: touch /tmp/stop_signal
-        
+          echo "⏲️ Handoff complete. Waiting 5 minutes for overlap before shutdown..."
+          sleep 300
+          echo "🛑 Graceful exit."
+          
