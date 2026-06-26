@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "🚀 V5.4.5: Lean Bootloader (Excluding Internal Work Dirs)"
+echo "🚀 V5.6: High-Speed Bootloader"
 
 # 1. Tools
 sudo curl https://rclone.org/install.sh | sudo bash
@@ -11,7 +11,7 @@ sudo dpkg -i cloudflared.deb && rm cloudflared.deb
 sudo service ssh start
 echo "runner:runner" | sudo chpasswd
 
-# Tunnel Token (Keep consistent across all accounts)
+# Tunnel Token
 sudo cloudflared service install eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGEiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9
 
 # 3. Rclone R2 Config
@@ -28,6 +28,7 @@ EOF
 
 # 4. INITIAL SMART PULL
 echo "📥 Syncing Home state from R2..."
+# Added --transfers 16 and --buffer-size 256M for 14GB handling
 rclone copy r2_storage:$BUCKET_NAME /home/runner \
     --exclude "actions-runner/**" \
     --exclude "_work/**" \
@@ -36,16 +37,18 @@ rclone copy r2_storage:$BUCKET_NAME /home/runner \
     --exclude ".cache/**" \
     --checksum \
     --update \
-    --transfers 12 \
-    --buffer-size 128M \
+    --transfers 16 \
+    --buffer-size 256M \
     --progress
 
 touch /home/runner/.files_ready
 
 # 5. Dependency Build
 echo "📦 Installing project dependencies..."
-find /home/runner -maxdepth 3 -name "package.json" \
+# Added -maxdepth 4 just in case your projects are one folder deeper
+find /home/runner -maxdepth 4 -name "package.json" \
     -not -path "*/.*/*" \
+    -not -path "*/node_modules/*" \
     -execdir npm install --no-audit --no-fund \;
 
 touch /home/runner/.deps_ready
@@ -56,9 +59,10 @@ if ! grep -q "ETERNAL_VPS_MARKER" /home/runner/.bashrc; then
 
 # --- ETERNAL_VPS_MARKER ---
 alias save='pm2 save --force'
-alias push='rclone sync /home/runner r2_storage:\$BUCKET_NAME --exclude "actions-runner/**" --exclude "_work/**" --exclude "**/node_modules/**" --exclude ".npm/**" --exclude ".cache/**" --checksum --progress'
+# Updated push to match V5.6 logic
+alias push='rclone sync /home/runner r2_storage:\$BUCKET_NAME --exclude "actions-runner/**" --exclude "_work/**" --exclude "**/node_modules/**" --exclude ".npm/**" --exclude ".cache/**" --checksum --fast-list --progress'
 alias status='pm2 status'
 # --- END_MARKER ---
 EOF
 fi
-echo "✅ Environment Ready."
+echo "✅ Environment Ready. Initial pull complete."
