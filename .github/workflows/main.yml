@@ -1,10 +1,7 @@
-name: Project-Module-V5.5
+name: Project-Module-V5.6-Final-Sync
 
 on:
   workflow_dispatch:
-    inputs:
-      generation:
-        default: '1'
   repository_dispatch:
     types: [trigger_vps]
 
@@ -39,52 +36,51 @@ jobs:
             pm2 restart all --update-env || true
           fi
 
-      - name: Background Incremental Sync (10-Minute Loop)
-        id: sync_loop
-        run: |
-          (
-            while true; do
-              sleep 600
-              # Check if a freeze is in progress
-              if [ -f /tmp/vps_frozen ]; then break; fi
-              
-              pm2 save --force > /dev/null 2>&1
-              nice -n 19 rclone sync /home/runner r2_storage:$BUCKET_NAME \
-                --exclude "actions-runner/**" --exclude "_work/**" \
-                --exclude "**/node_modules/**" --exclude ".npm/**" --exclude ".cache/**" \
-                --checksum --fast-list --quiet
-            done
-          ) &
-
-      - name: 5-Hour Timed Handoff
+      - name: 5-Hour Runtime & Master Handoff
         env:
           NEXT_TOKEN: ${{ secrets.N_GH_TOKEN }}
           NEXT_REPO: ${{ secrets.REPO }}
         run: |
-          # Wait 5 hours + random jitter
-          sleep $((18000 + RANDOM % 900))
+          echo "🛰️ VPS Active. Initializing 5-hour monitored runtime loop..."
           
-          echo "❄️ Freezing state and performing final backup..."
-          touch /tmp/vps_frozen
+          # 5 hours = 30 intervals of 10 minutes (600 seconds)
+          # This keeps the console stream active to prevent GitHub from killing an idle step
+          for i in {1..30}; do
+            sleep 600
+            echo "⏱️ Heartbeat: $((i * 10)) minutes elapsed. System alive."
+          done
+          
+          echo "📦 [CRITICAL] 5-Hour mark reached safely. Freezing and Syncing..."
           pm2 save --force
           
-          # Final Master Sync
+          # Master Sync: High-speed tuning for large datasets (14GB)
           rclone sync /home/runner r2_storage:$BUCKET_NAME \
-            --exclude "actions-runner/**" --exclude "_work/**" \
-            --exclude "**/node_modules/**" --exclude ".npm/**" --exclude ".cache/**" \
-            --checksum --fast-list
+            --exclude "actions-runner/**" \
+            --exclude "_work/**" \
+            --exclude "**/node_modules/**" \
+            --exclude ".npm/**" \
+            --exclude ".cache/**" \
+            --checksum --fast-list --transfers 16 --buffer-size 256M --progress
           
-          echo "🚀 Triggering next account: $NEXT_REPO"
-          CURRENT_GEN=${{ github.event.inputs.generation || github.event.client_payload.generation || 1 }}
-          NEXT_GEN=$(( CURRENT_GEN + 1 ))
-          
-          curl -L -X POST \
-            -H "Authorization: token $NEXT_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/$NEXT_REPO/dispatches \
-            -d "{\"event_type\": \"trigger_vps\", \"client_payload\": {\"generation\": \"$NEXT_GEN\"}}"
-          
-          echo "⏲️ Handoff complete. Waiting 5 minutes for overlap before shutdown..."
-          sleep 300
-          echo "🛑 Graceful exit."
-          
+          if [ $? -eq 0 ]; then
+            echo "✅ Sync complete. Triggering next account..."
+            curl -L -X POST \
+              -H "Authorization: token $NEXT_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/$NEXT_REPO/dispatches \
+              -d '{"event_type": "trigger_vps"}'
+            
+            echo "⏲️ Allowing 2-minute overlap for Cloudflare propagation..."
+            sleep 120
+            echo "🛑 Graceful shutdown complete."
+          else
+            echo "❌ Sync failed! Retrying fallback sync..."
+            sleep 10
+            rclone sync /home/runner r2_storage:$BUCKET_NAME \
+              --exclude "actions-runner/**" \
+              --exclude "_work/**" \
+              --exclude "**/node_modules/**" \
+              --exclude ".npm/**" \
+              --exclude ".cache/**" \
+              --checksum --fast-list
+          fi
