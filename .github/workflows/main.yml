@@ -35,6 +35,8 @@ jobs:
             pm2 resurrect || true
             pm2 restart all --update-env || true
           fi
+          # Limit PM2 max memory per process to avoid OOM on 7GB runner
+          pm2 set pm2:max_memory_restart 4G
 
       - name: 5-Hour Runtime & Master Handoff
         env:

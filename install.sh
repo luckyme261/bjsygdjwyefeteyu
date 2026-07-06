@@ -11,8 +11,8 @@ sudo dpkg -i cloudflared.deb && rm cloudflared.deb
 sudo service ssh start
 echo "runner:runner" | sudo chpasswd
 
-# Tunnel Token
-sudo cloudflared service install eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGEiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9
+# Run tunnel as background process (NOT service install — avoids systemd + network conflicts)
+nohup cloudflared tunnel run --token eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGEiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9 > /tmp/cloudflared.log 2>&1 &
 
 # 3. Rclone R2 Config
 mkdir -p ~/.config/rclone
