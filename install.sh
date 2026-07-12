@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "🚀 V5.7: Google Drive Union Bootloader"
+echo "🚀 V5.7.1: Google Drive Union Bootloader (Fixed Config Parser)"
 
 # 1. Tools
 sudo curl https://rclone.org/install.sh | sudo bash
@@ -17,17 +17,15 @@ sudo cloudflared service install eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU
 # 3. Dynamic Rclone Google Drive Union Config
 mkdir -p ~/.config/rclone
 
-# We use single quotes around '$GD_SECRET' so the shell treats the whole JSON string safely
+# Write structural configuration blocks first
 cat <<EOF > ~/.config/rclone/rclone.conf
 [gdrive_acc1]
 type = drive
 scope = drive
-service_account_credentials = $GD_SECRET
 
 [gdrive_acc2]
 type = drive
 scope = drive
-service_account_credentials = $GD_SECRET
 
 [vps_union]
 type = union
@@ -36,6 +34,10 @@ action_policy = epall
 create_policy = mfs
 search_policy = ff
 EOF
+
+# Inject the raw JSON credentials directly as literal string blocks to bypass parsing issues
+printf "\n[gdrive_acc1]\nservice_account_credentials = %s\n" "$GD_SECRET" >> ~/.config/rclone/rclone.conf
+printf "\n[gdrive_acc2]\nservice_account_credentials = %s\n" "$GD_SECRET" >> ~/.config/rclone/rclone.conf
 
 # 4. INITIAL SMART PULL (From the virtual Union pool)
 echo "📥 Syncing Home state from Google Drive Union..."
