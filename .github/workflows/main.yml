@@ -7,7 +7,7 @@ on:
 
 jobs:
   vps-runtime:
-    runs-runs-on: ubuntu-latest
+    runs-on: ubuntu-latest
     env:
       # Injecting the entire JSON secret block as an environment variable
       GD_SECRET: ${{ secrets.GD_SECRET }}
@@ -51,7 +51,6 @@ jobs:
           echo "📦 [CRITICAL] 5-Hour mark reached safely. Initiating automated Docker freeze and Sync..."
           
           # Force the current shell to run interactively so it reads aliases/functions from .bashrc
-          # This allows us to use the custom 'push' pipeline built by install.sh
           source /home/runner/.bashrc
           pm2 save --force
           
