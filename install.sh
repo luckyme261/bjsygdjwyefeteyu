@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "🚀 V5.7.1: Google Drive Union Bootloader (Fixed Config Parser)"
+echo "🚀 V5.7.2: Google Drive Union Bootloader (Isolated JSON File Path)"
 
 # 1. Tools
 sudo curl https://rclone.org/install.sh | sudo bash
@@ -17,15 +17,21 @@ sudo cloudflared service install eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU
 # 3. Dynamic Rclone Google Drive Union Config
 mkdir -p ~/.config/rclone
 
-# Write structural configuration blocks first
+# Safely dump the raw JSON string directly into a separate file.
+# This prevents GitHub runner token expansion errors.
+echo "$GD_SECRET" > ~/.config/rclone/service_account.json
+
+# Write structural configuration blocks pointing to the file path instead of raw text
 cat <<EOF > ~/.config/rclone/rclone.conf
 [gdrive_acc1]
 type = drive
 scope = drive
+service_account_file = /home/runner/.config/rclone/service_account.json
 
 [gdrive_acc2]
 type = drive
 scope = drive
+service_account_file = /home/runner/.config/rclone/service_account.json
 
 [vps_union]
 type = union
@@ -34,10 +40,6 @@ action_policy = epall
 create_policy = mfs
 search_policy = ff
 EOF
-
-# Inject the raw JSON credentials directly as literal string blocks to bypass parsing issues
-printf "\n[gdrive_acc1]\nservice_account_credentials = %s\n" "$GD_SECRET" >> ~/.config/rclone/rclone.conf
-printf "\n[gdrive_acc2]\nservice_account_credentials = %s\n" "$GD_SECRET" >> ~/.config/rclone/rclone.conf
 
 # 4. INITIAL SMART PULL (From the virtual Union pool)
 echo "📥 Syncing Home state from Google Drive Union..."
@@ -75,4 +77,4 @@ alias status='pm2 status'
 # --- END_MARKER ---
 EOF
 fi
-echo "✅ Environment Ready. Google Drive Union linked."
+echo "✅ Environment Ready. Google Drive Union linked via clean file mapping."
