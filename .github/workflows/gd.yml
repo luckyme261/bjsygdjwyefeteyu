@@ -1,0 +1,81 @@
+name: Project-Module-V5.7-GD-Union
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [trigger_vps]
+
+jobs:
+  vps-runtime:
+    runs-on: ubuntu-latest
+    env:
+      # Injecting the entire JSON secret block as an environment variable
+      GD_SECRET: ${{ secrets.GD_SECRET }}
+      BUCKET_NAME: "storage"
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Provision & Pull
+        run: |
+          sudo npm install -g pm2
+          chmod +x install.sh
+          ./install.sh
+          echo "/usr/local/bin" >> $GITHUB_PATH
+
+      - name: Restore PM2 State
+        run: |
+          while [ ! -f /home/runner/.files_ready ]; do sleep 2; done
+          while [ ! -f /home/runner/.deps_ready ]; do sleep 2; done
+          
+          pm2 ping
+          if [ -f /home/runner/.pm2/dump.pm2 ]; then
+            pm2 resurrect || true
+            pm2 restart all --update-env || true
+          fi
+
+      - name: 5-Hour Runtime & Master Handoff
+        env:
+          NEXT_TOKEN: ${{ secrets.N_GH_TOKEN }}
+          NEXT_REPO: ${{ secrets.REPO }}
+        run: |
+          echo "🛰️ VPS Active. Running 5-hour monitored runtime loop..."
+          
+          # Keep the log active to prevent GitHub silent timeouts
+          for i in {1..30}; do
+            sleep 600
+            echo "⏱️ Heartbeat: $((i * 10)) minutes elapsed. System alive."
+          done
+          
+          echo "📦 [CRITICAL] 5-Hour mark reached safely. Freezing and Syncing..."
+          pm2 save --force
+          
+          # Master Sync: Pushing to the unified Google Drive pool
+          rclone sync /home/runner vps_union: \
+            --exclude "actions-runner/**" \
+            --exclude "_work/**" \
+            --exclude "**/node_modules/**" \
+            --exclude ".npm/**" \
+            --exclude ".cache/**" \
+            --checksum --fast-list --transfers 16 --buffer-size 256M --progress
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ Sync complete. Triggering next account..."
+            curl -L -X POST \
+              -H "Authorization: token $NEXT_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/$NEXT_REPO/dispatches \
+              -d '{"event_type": "trigger_vps"}'
+            
+            echo "⏲️ Allowing 2-minute overlap for propagation..."
+            sleep 120
+            echo "🛑 Graceful shutdown complete."
+          else
+            echo "❌ Sync failed! Retrying fallback sync..."
+            sleep 10
+            rclone sync /home/runner vps_union: \
+              --exclude "actions-runner/**" --exclude "_work/**" \
+              --exclude "**/node_modules/**" --exclude ".npm/**" --exclude ".cache/**" \
+              --checksum --fast-list
+          fi
