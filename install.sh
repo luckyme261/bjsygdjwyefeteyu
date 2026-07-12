@@ -1,11 +1,10 @@
 #!/bin/bash
-echo "🚀 V5.8: Google Drive Union Bootloader + Docker Persistence Engine"
+echo "🚀 V5.8.2: Google Drive Union Bootloader + API Stability Engine"
 
 # 1. Tools & Docker Installation
 sudo curl https://rclone.org/install.sh | sudo bash
 sudo apt-get update && sudo apt-get install -y jq micro htop ncdu openssh-server
 
-# Install Docker and Docker Compose if not already present
 if ! command -v docker &> /dev/null; then
     echo "🐳 Installing Docker Engine..."
     curl -fsSL https://get.docker.com -o get-docker.sh
@@ -45,25 +44,27 @@ create_policy = mfs
 search_policy = ff
 EOF
 
-# 4. INITIAL SMART PULL (State Restoration)
+# 4. INITIAL SMART PULL
 echo "📥 Initializing and Syncing Home state from Google Drive Union..."
 rclone mkdir gdrive_acc1:storage 2>/dev/null || true
 rclone mkdir gdrive_acc2:storage 2>/dev/null || true
 
+# Structural filter pull to bring down configurations and active workspaces safely
 rclone copy vps_union: /home/runner \
-    --exclude "actions-runner/**" \
-    --exclude "_work/**" \
-    --exclude "**/node_modules/**" \
-    --exclude ".npm/**" \
-    --exclude ".cache/**" \
-    --checksum \
-    --update \
-    --transfers 16 \
-    --buffer-size 256M \
-    --progress || echo "ℹ️ Note: No existing files found. Proceeding clean."
+    --include "/.bashrc" \
+    --include "/.profile" \
+    --include "/.opencode/**" \
+    --include "/.ssh/**" \
+    --include "/.pm2/dump.pm2" \
+    --include "/docker_backup/**" \
+    --include "*/**" \
+    --exclude "/.*/**" \
+    --exclude "/.*" \
+    --tpslimit 10 \
+    --transfers 4 \
+    --checksum --update --buffer-size 256M || echo "ℹ️ Note: Clean environment."
 
 # 🐳 DOCKER RESUME LOGIC
-# Look for any zipped docker volumes that were backed up in the last cycle
 if [ -d "/home/runner/docker_backup" ]; then
     echo "📦 Restoring local Docker volumes..."
     mkdir -p /var/lib/docker/volumes/
@@ -76,7 +77,6 @@ if [ -d "/home/runner/docker_backup" ]; then
     done
 fi
 
-# Automatically spin back up any docker-compose projects found in the workspace
 find /home/runner -name "docker-compose.yml" -o -name "compose.yml" | while read -r compose_file; do
     echo "🐳 Starting up Docker project: $compose_file"
     sudo docker compose -f "$compose_file" up -d || true
@@ -84,7 +84,7 @@ done
 
 touch /home/runner/.files_ready
 
-# 5. Dependency Build (For Node/Next.js/PM2 projects)
+# 5. Dependency Build
 echo "📦 Installing project dependencies..."
 find /home/runner -maxdepth 4 -name "package.json" \
     -not -path "*/.*/*" \
@@ -93,7 +93,28 @@ find /home/runner -maxdepth 4 -name "package.json" \
 
 touch /home/runner/.deps_ready
 
-# 6. Persistent Aliases & Global Push Function
+# 6. Persistent Aliases & Custom Filtered Push Engine
+mkdir -p /home/runner/.config/rclone
+cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
+# 1. Explicitly allow targeted essential configurations
++ /.bashrc
++ /.profile
++ /.opencode/**
++ /.ssh/**
++ /.pm2/dump.pm2
++ /docker_backup/**
+
+# 2. Grab all visible workspace files/projects
++ */**
+
+# 3. Aggressively drop heavy system runtimes, modules, and caches
+- /actions-runner/**
+- /_work/**
+- /**/node_modules/**
+- /.*/**
+- /.*
+EOF
+
 if ! grep -q "ETERNAL_VPS_MARKER" /home/runner/.bashrc; then
     cat <<EOF >> /home/runner/.bashrc
 
@@ -101,15 +122,12 @@ if ! grep -q "ETERNAL_VPS_MARKER" /home/runner/.bashrc; then
 alias save='pm2 save --force'
 alias status='pm2 status'
 
-# Custom smart push function that safely handles Docker and Rclone
 push() {
     echo "🛑 Safely freezing Docker containers..."
-    # Find all active compose files and bring them down cleanly to flush database caches to disk
     find /home/runner -name "docker-compose.yml" -o -name "compose.yml" | while read -r compose_file; do
         sudo docker compose -f "\$compose_file" down || true
     done
     
-    # Backup named volumes into home directory before upload
     mkdir -p /home/runner/docker_backup
     echo "📦 Compressing active Docker volumes..."
     sudo find /var/lib/docker/volumes/ -maxdepth 1 -mindepth 1 -not -name "metadata.db" | while read -r vol; do
@@ -117,11 +135,20 @@ push() {
         sudo tar -czf "/home/runner/docker_backup/\${vol_name}.tar.gz" -C "\$vol/_data" . 2>/dev/null || true
     done
     
-    echo "📤 Syncing everything up to the Google Drive Union..."
-    rclone sync /home/runner vps_union: --exclude "actions-runner/**" --exclude "_work/**" --exclude "**/node_modules/**" --exclude ".npm/**" --exclude ".cache/**" --checksum --fast-list --progress
+    echo "📤 Syncing structural workspace state to Google Drive Union..."
+    # Configured to respect Google's transactions-per-second constraints completely
+    rclone sync /home/runner vps_union: \
+        --filter-from /home/runner/.config/rclone/filter-rules.txt \
+        --checksum \
+        --fast-list \
+        --transfers 4 \
+        --tpslimit 10 \
+        --low-level-retries 10 \
+        --ignore-errors \
+        --progress
 }
 # --- END_MARKER ---
 EOF
 fi
 
-echo "✅ Environment Ready. Google Drive Union and Docker pipeline established."
+echo "✅ Environment Ready. Rate-limit safe filter pipeline established."
