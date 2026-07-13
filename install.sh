@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "🚀 V6.4.3: IDrive e2 Multi-Account Union Bootloader & Automation Core (Zsh Optimized)"
+echo "🚀 V6.4.4: IDrive e2 Multi-Account Union Bootloader & Automation Core (Zsh Optimized)"
 
 # ==========================================
 # 1. TOOLS & RUNTIME ENGINE PROVISIONING
@@ -46,15 +46,18 @@ fi
 touch /home/runner/.zshrc
 
 # ==========================================
-# 2. PROXY EDGE & SYSTEM SECURE TUNNELING
+# 2. CLOUDFLARED & SSH SETUP (Restored Old Working Logic)
 # ==========================================
 curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
 sudo dpkg -i cloudflared.deb && rm cloudflared.deb
 
 # Ensure the runner shell defaults to Zsh and SSH access rules are open
 sudo chsh -s /usr/bin/zsh runner
-sudo service ssh restart
+sudo service ssh start
 echo "runner:runner" | sudo chpasswd
+
+# Install the tunnel back exactly as a system service wrapper
+sudo cloudflared service install eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGAiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9
 
 # ==========================================
 # 3. DYNAMIC RCLONE MULTI-ACCOUNT UNION CONFIG
@@ -185,7 +188,7 @@ touch /home/runner/.deps_ready
 echo "🛠 Overwriting global 'push' execution engine into system path..."
 
 sudo cat << 'EOF' > /usr/local/bin/push
-#!/bash
+#!/bin/bash
 echo "🛑 Saving current PM2 application registry..."
 if command -v pm2 &> /dev/null; then
     pm2 save --force || true
