@@ -1,11 +1,11 @@
 #!/bin/bash
-echo "🚀 V6.3.0: IDrive e2 Multi-Account Union Bootloader & Automation Core"
+echo "🚀 V6.4.0: IDrive e2 Multi-Account Union Bootloader & Automation Core (Zsh Optimized)"
 
 # ==========================================
 # 1. TOOLS & RUNTIME ENGINE PROVISIONING
 # ==========================================
 sudo curl https://rclone.org/install.sh | sudo bash
-sudo apt-get update && sudo apt-get install -y jq micro htop ncdu openssh-server
+sudo apt-get update && sudo apt-get install -y jq micro htop ncdu openssh-server zsh
 
 if ! command -v docker &> /dev/null; then
     echo "🐳 Installing Docker Engine..."
@@ -14,11 +14,33 @@ if ! command -v docker &> /dev/null; then
     sudo usermod -aG docker runner
 fi
 
-# Install PM2 globally if not present
+# PM2 Global Path Installation Engine
 if ! command -v pm2 &> /dev/null; then
-    echo "📦 Installing PM2 process manager..."
-    sudo npm install -p pm2 -g
+    echo "📦 PM2 missing. Checking npm context..."
+    if command -v npm &> /dev/null; then
+        echo "⚡ Installing PM2 via current user environment..."
+        npm install pm2 -g || sudo npm install pm2 -g --unsafe-perm
+        
+        if [ -f "$HOME/.npm-global/bin/pm2" ]; then
+            sudo ln -sf "$HOME/.npm-global/bin/pm2" /usr/local/bin/pm2
+        elif [ -f "$HOME/.nvm/versions/node/$(node -v)/bin/pm2" ]; then
+            sudo ln -sf "$HOME/.nvm/versions/node/$(node -v)/bin/pm2" /usr/local/bin/pm2
+        fi
+    else
+        echo "⚠️ Node/NPM not discovered in path yet. Installing system Node..."
+        sudo apt-get install -y nodejs npm
+        sudo npm install pm2 -g
+    fi
 fi
+
+# OpenCode Engine Provisioning
+if ! command -v opencode &> /dev/null; then
+    echo "🤖 OpenCode binary missing. Initiating installation routine..."
+    curl -fsSL https://opencode.ai/install | bash || echo "⚠️ Warning: OpenCode installation script exited with errors."
+fi
+
+# Ensure Zsh configurations are ready to accept inputs
+touch /home/runner/.zshrc
 
 # ==========================================
 # 2. PROXY EDGE & SYSTEM SECURE TUNNELING
@@ -65,12 +87,13 @@ EOF
 # 4. ENHANCED SYSTEM FILTER RULES DEPLOYMENT
 # ==========================================
 cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
-# 1. Explicitly protect crucial hidden runtime directories
+# 1. Explicitly protect crucial hidden runtime directories & shell metrics
 + .pm2/**
 + .opencode/**
 + .docker/**
 + .ssh/**
-+ .bashrc
++ .zshrc
++ .zsh_history
 + .profile
 + docker_backup/**
 
@@ -105,9 +128,11 @@ rclone copy vps_union: /home/runner \
     --checksum --update --transfers 16 --buffer-size 256M || echo "ℹ️ Note: Fresh storage environment."
 
 # 🔄 PM2 RESURRECT SEQUENCE
-if [ -d "/home/runner/.pm2" ]; then
-    echo "⚡ Resuming active background processes via PM2..."
-    pm2 resurrect || echo "⚠️ Warning: No active PM2 process dump available."
+if command -v pm2 &> /dev/null; then
+    if [ -d "/home/runner/.pm2" ]; then
+        echo "⚡ Resuming active background processes via PM2..."
+        pm2 resurrect || echo "⚠️ Warning: No active PM2 process dump available."
+    fi
 fi
 
 # 🐳 DOCKER VOLUME RESTORE SEQUENCE
@@ -166,7 +191,7 @@ sudo find /var/lib/docker/volumes/ -maxdepth 1 -mindepth 1 -not -name "metadata.
     sudo tar -czf "/home/runner/docker_backup/${vol_name}.tar.gz" -C "$vol/_data" . 2>/dev/null || true
 done
 
-echo "📤 Copying structured workspace state to IDrive e2 Union..."
+echo "📤 Copying structural workspace state to IDrive e2 Union..."
 rclone copy /home/runner vps_union: \
     --filter-from /home/runner/.config/rclone/filter-rules.txt \
     --checksum \
@@ -179,13 +204,15 @@ EOF
 # Authorize global system execution
 sudo chmod +x /usr/local/bin/push
 
-# Clean old artifacts from interactive .bashrc configs
-sed -i '/# --- ETERNAL_VPS_MARKER ---/,/# --- END_MARKER ---/d' /home/runner/.bashrc
+# Clean old artifacts from interactive config states
+sed -i '/# --- ETERNAL_VPS_MARKER ---/,/# --- END_MARKER ---/d' /home/runner/.zshrc
 
-# Append core terminal shortcut aliases
-cat <<EOF >> /home/runner/.bashrc
+# Append core terminal shortcut aliases directly to Zsh profile
+cat <<EOF >> /home/runner/.zshrc
+# --- ETERNAL_VPS_MARKER ---
 alias save='pm2 save --force'
 alias status='pm2 status'
+# --- END_MARKER ---
 EOF
 
-echo "✅ Deployment initialization successfully concluded."
+echo "✅ Deployment initialization successfully concluded. Active runtime tailored to Zsh environment."
