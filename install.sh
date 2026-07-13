@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "🚀 V6.4.0: IDrive e2 Multi-Account Union Bootloader & Automation Core (Zsh Optimized)"
+echo "🚀 V6.4.1: IDrive e2 Multi-Account Union Bootloader & Automation Core (Zsh Optimized)"
 
 # ==========================================
 # 1. TOOLS & RUNTIME ENGINE PROVISIONING
@@ -33,25 +33,29 @@ if ! command -v pm2 &> /dev/null; then
     fi
 fi
 
+# Ensure Zsh configurations are ready to accept inputs
+touch /home/runner/.zshrc
+
 # OpenCode Engine Provisioning
 if ! command -v opencode &> /dev/null; then
     echo "🤖 OpenCode binary missing. Initiating installation routine..."
     curl -fsSL https://opencode.ai/install | bash || echo "⚠️ Warning: OpenCode installation script exited with errors."
+    
+    # Mirror path hooks into .zshrc since the installer defaults to .bashrc
+    echo 'export PATH="$HOME/.opencode/bin:$PATH"' >> /home/runner/.zshrc
 fi
 
-# Ensure Zsh configurations are ready to accept inputs
-touch /home/runner/.zshrc
-
 # ==========================================
-# 2. PROXY EDGE & SYSTEM SECURE TUNNELING
+# 2. PROXY EDGE & SYSTEM SECURE TUNNELING (FIXED NO-SYSTEMD HANG)
 # ==========================================
 curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
 sudo dpkg -i cloudflared.deb && rm cloudflared.deb
 sudo service ssh start
 echo "runner:runner" | sudo chpasswd
 
-# Tunnel Service Integration
-sudo cloudflared service install eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGAiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9
+# Launch the tunnel directly in the background using the runner, avoiding systemd blocking
+echo "🌐 Launching Cloudflare Tunnel proxy engine..."
+nohup cloudflared tunnel run --token eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGAiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9 > /dev/null 2>&1 &
 
 # ==========================================
 # 3. DYNAMIC RCLONE MULTI-ACCOUNT UNION CONFIG
