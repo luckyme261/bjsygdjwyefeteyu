@@ -1,12 +1,32 @@
 #!/bin/bash
-echo "🚀 V6.4.9: IDrive e2 Multi-Account Union Bootloader & Automation Core (Pure Bash)"
+echo "🚀 V6.5.0: IDrive e2 Multi-Account Union Bootloader (Priority Tunnel Flow)"
 
 # ==========================================
-# 1. TOOLS & RUNTIME ENGINE PROVISIONING
+# 1. IMMEDIATE TUNNEL & SSH SECURE PROVISIONING (Moved to Top)
 # ==========================================
+echo "🌐 Provisioning Cloudflare Tunnel edge immediately..."
+curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+sudo dpkg -i cloudflared.deb && rm cloudflared.deb
+
+# Boot SSH service and authorize credentials
+sudo apt-get update && sudo apt-get install -y openssh-server
+sudo service ssh start
+echo "runner:runner" | sudo chpasswd
+
+# Export and run tunnel instantly to open local vps.sh access
+export TUNNEL_TOKEN="eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGAiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9"
+nohup cloudflared tunnel run --token "$TUNNEL_TOKEN" > /tmp/cloudflared.log 2>&1 &
+
+echo "✅ Cloudflare Tunnel background thread established. Gateway open."
+
+# ==========================================
+# 2. SYSTEM TOOLS & RUNTIME ENGINE PROVISIONING
+# ==========================================
+echo "📦 Continuing background system provisioning..."
 sudo curl https://rclone.org/install.sh | sudo bash
-sudo apt-get update && sudo apt-get install -y jq micro htop ncdu openssh-server
+sudo apt-get install -y jq micro htop ncdu
 
+# Docker Runtime Setup
 if ! command -v docker &> /dev/null; then
     echo "🐳 Installing Docker Engine..."
     curl -fsSL https://get.docker.com -o get-docker.sh
@@ -35,22 +55,6 @@ fi
 
 # Ensure Bash configuration is present
 touch /home/runner/.bashrc
-
-# ==========================================
-# 2. CLOUDFLARED & SSH SETUP
-# ==========================================
-curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-sudo dpkg -i cloudflared.deb && rm cloudflared.deb
-
-# Ensure SSH access rules are wide open
-sudo service ssh start
-echo "runner:runner" | sudo chpasswd
-
-# Export tunnel token cleanly to prevent string wrapping drops
-export TUNNEL_TOKEN="eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGAiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9"
-
-# Fire tunnel directly to /tmp logs as a protected background process
-nohup cloudflared tunnel run --token "$TUNNEL_TOKEN" > /tmp/cloudflared.log 2>&1 &
 
 # ==========================================
 # 3. DYNAMIC RCLONE MULTI-ACCOUNT UNION CONFIG
@@ -221,4 +225,4 @@ alias status='pm2 status'
 # --- END_MARKER ---
 EOF
 
-echo "✅ Deployment initialization successfully concluded. Active runtime tailored to Bash environment."
+echo "✅ Deployment initialization successfully concluded."
