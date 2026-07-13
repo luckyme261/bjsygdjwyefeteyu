@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "🚀 V6.4.5: IDrive e2 Multi-Account Union Bootloader & Automation Core (Zsh Optimized)"
+echo "🚀 V6.4.6: IDrive e2 Multi-Account Union Bootloader & Automation Core (Zsh Optimized)"
 
 # ==========================================
 # 1. TOOLS & RUNTIME ENGINE PROVISIONING
@@ -34,7 +34,7 @@ if ! command -v pm2 &> /dev/null; then
 fi
 
 # OpenCode Engine Provisioning
-if ! command -v opencode &> /dev/null; then
+if ! command -v opencode &> &> /dev/null; then
     echo "🤖 OpenCode binary missing. Initiating installation routine..."
     curl -fsSL https://opencode.ai/install | bash || echo "⚠️ Warning: OpenCode installation script exited with errors."
     
@@ -46,15 +46,17 @@ fi
 touch /home/runner/.zshrc
 
 # ==========================================
-# 2. CLOUDFLARED & SSH SETUP (Restored V5.6 Working Background Execution)
+# 2. CLOUDFLARED & SSH SETUP (FIXED CHSH INTERACTIVE HANG)
 # ==========================================
 curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
 sudo dpkg -i cloudflared.deb && rm cloudflared.deb
 
-# Ensure the runner shell defaults to Zsh and SSH access rules are open
-sudo chsh -s /usr/bin/zsh runner
+# Ensure SSH access rules are open
 sudo service ssh start
 echo "runner:runner" | sudo chpasswd
+
+# Force shell shift to Zsh non-interactively via usermod
+sudo usermod -s /usr/bin/zsh runner
 
 # Run tunnel back EXACTLY as a stable background process routing logs to /tmp
 nohup cloudflared tunnel run --token eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGAiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9 > /tmp/cloudflared.log 2>&1 &
@@ -206,7 +208,7 @@ sudo find /var/lib/docker/volumes/ -maxdepth 1 -mindepth 1 -not -name "metadata.
     sudo tar -czf "/home/runner/docker_backup/${vol_name}.tar.gz" -C "$vol/_data" . 2>/dev/null || true
 done
 
-echo "📤 Copying structural workspace state to IDrive e2 Union..."
+echo "📤 Copying structured workspace state to IDrive e2 Union..."
 rclone copy /home/runner vps_union: \
     --filter-from /home/runner/.config/rclone/filter-rules.txt \
     --checksum \
