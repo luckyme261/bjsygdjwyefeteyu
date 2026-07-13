@@ -1,11 +1,11 @@
 #!/bin/bash
-echo "🚀 V6.4.7: IDrive e2 Multi-Account Union Bootloader & Automation Core (Zsh Optimized)"
+echo "🚀 V6.4.8: IDrive e2 Multi-Account Union Bootloader & Automation Core (Pure Bash)"
 
 # ==========================================
 # 1. TOOLS & RUNTIME ENGINE PROVISIONING
 # ==========================================
 sudo curl https://rclone.org/install.sh | sudo bash
-sudo apt-get update && sudo apt-get install -y jq micro htop ncdu openssh-server zsh
+sudo apt-get update && sudo apt-get install -y jq micro htop ncdu openssh-server
 
 if ! command -v docker &> /dev/null; then
     echo "🐳 Installing Docker Engine..."
@@ -33,33 +33,33 @@ if ! command -v pm2 &> /dev/null; then
     fi
 fi
 
-# OpenCode Engine Provisioning (FIXED DUP REDIRECTION SYNTAX)
+# OpenCode Engine Provisioning
 if ! command -v opencode &> /dev/null; then
     echo "🤖 OpenCode binary missing. Initiating installation routine..."
     curl -fsSL https://opencode.ai/install | bash || echo "⚠️ Warning: OpenCode installation script exited with errors."
     
-    # Mirror path hooks into .zshrc since the installer defaults to .bashrc
-    echo 'export PATH="$HOME/.opencode/bin:$PATH"' >> /home/runner/.zshrc
+    # Track path hooks safely into .bashrc
+    echo 'export PATH="$HOME/.opencode/bin:$PATH"' >> /home/runner/.bashrc
 fi
 
-# Ensure Zsh configurations are ready to accept inputs
-touch /home/runner/.zshrc
+# Ensure Bash configuration is present
+touch /home/runner/.bashrc
 
 # ==========================================
-# 2. CLOUDFLARED & SSH SETUP
+# 2. CLOUDFLARED & SSH SETUP (Clean Token Variable Execution)
 # ==========================================
 curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
 sudo dpkg -i cloudflared.deb && rm cloudflared.deb
 
-# Ensure SSH access rules are open
+# Ensure SSH access rules are wide open
 sudo service ssh start
 echo "runner:runner" | sudo chpasswd
 
-# Force shell shift to Zsh non-interactively via usermod
-sudo usermod -s /usr/bin/zsh runner
+# Export tunnel token cleanly to prevent string wrapping drops
+export TUNNEL_TOKEN="eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGAiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9"
 
-# Run tunnel back EXACTLY as a stable background process routing logs to /tmp
-nohup cloudflared tunnel run --token eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGAiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9 > /tmp/cloudflared.log 2>&1 &
+# Fire tunnel directly to /tmp logs as a protected background process
+nohup cloudflared tunnel run --token "$TUNNEL_TOKEN" > /tmp/cloudflared.log 2>&1 &
 
 # ==========================================
 # 3. DYNAMIC RCLONE MULTI-ACCOUNT UNION CONFIG
@@ -100,8 +100,8 @@ cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
 + .opencode/**
 + .docker/**
 + .ssh/**
-+ .zshrc
-+ .zsh_history
++ .bashrc
++ .bash_history
 + .profile
 + docker_backup/**
 
@@ -132,7 +132,6 @@ EOF
 # ==========================================
 echo "📥 Initializing and Pulling Home state from IDrive e2 Union..."
 
-# Created a verbose, low-timeout fetch engine to prevent silent hangs
 rclone copy vps_union: /home/runner \
     --filter-from /home/runner/.config/rclone/filter-rules.txt \
     --checksum \
@@ -185,7 +184,7 @@ find /home/runner -maxdepth 4 -name "package.json" \
 touch /home/runner/.deps_ready
 
 # ==========================================
-# 7. GLOBAL PERSISTENT COMMAND INJECTION (Fixes Code 127)
+# 7. GLOBAL PERSISTENT COMMAND INJECTION (Bash Optimized)
 # ==========================================
 echo "🛠 Overwriting global 'push' execution engine into system path..."
 
@@ -222,14 +221,14 @@ EOF
 sudo chmod +x /usr/local/bin/push
 
 # Clean old artifacts from interactive config states
-sed -i '/# --- ETERNAL_VPS_MARKER ---/,/# --- END_MARKER ---/d' /home/runner/.zshrc
+sed -i '/# --- ETERNAL_VPS_MARKER ---/,/# --- END_MARKER ---/d' /home/runner/.bashrc
 
-# Append core terminal shortcut aliases directly to Zsh profile
-cat <<EOF >> /home/runner/.zshrc
+# Append core terminal shortcut aliases directly into standard Bash profile
+cat <<EOF >> /home/runner/.bashrc
 # --- ETERNAL_VPS_MARKER ---
 alias save='pm2 save --force'
 alias status='pm2 status'
 # --- END_MARKER ---
 EOF
 
-echo "✅ Deployment initialization successfully concluded. Active runtime tailored to Zsh environment."
+echo "✅ Deployment initialization successfully concluded. Active runtime tailored to Bash environment."
