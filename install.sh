@@ -1,7 +1,9 @@
 #!/bin/bash
-echo "🚀 V5.8.2: Google Drive Union Bootloader + API Stability Engine"
+echo "🚀 V6.2.0: IDrive e2 Multi-Account Union Bootloader & Automation Core"
 
-# 1. Tools & Docker Installation
+# ==========================================
+# 1. TOOLS & RUNTIME ENGINE PROVISIONING
+# ==========================================
 sudo curl https://rclone.org/install.sh | sudo bash
 sudo apt-get update && sudo apt-get install -y jq micro htop ncdu openssh-server
 
@@ -12,59 +14,90 @@ if ! command -v docker &> /dev/null; then
     sudo usermod -aG docker runner
 fi
 
-# 2. Cloudflared & SSH Setup
+# ==========================================
+# 2. PROXY EDGE & SYSTEM SECURE TUNNELING
+# ==========================================
 curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
 sudo dpkg -i cloudflared.deb && rm cloudflared.deb
 sudo service ssh start
 echo "runner:runner" | sudo chpasswd
 
-# Tunnel Token
-sudo cloudflared service install eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGEiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9
+# Tunnel Service Integration
+sudo cloudflared service install eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGAiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9
 
-# 3. Dynamic Rclone Google Drive Union Config
-mkdir -p ~/.config/rclone
-echo "$GD_SECRET" > ~/.config/rclone/service_account.json
+# ==========================================
+# 3. DYNAMIC RCLONE MULTI-ACCOUNT UNION CONFIG
+# ==========================================
+mkdir -p /home/runner/.config/rclone
 
-cat <<EOF > ~/.config/rclone/rclone.conf
-[gdrive_acc1]
-type = drive
-scope = drive
-service_account_file = /home/runner/.config/rclone/service_account.json
+cat <<EOF > /home/runner/.config/rclone/rclone.conf
+[e2_space1]
+type = s3
+provider = IDrive
+access_key_id = $E2_ACCESS_KEY_1
+secret_access_key = $E2_SECRET_1
+endpoint = $E2_ENDPOINT_1
+acl = private
 
-[gdrive_acc2]
-type = drive
-scope = drive
-service_account_file = /home/runner/.config/rclone/service_account.json
+[e2_space2]
+type = s3
+provider = IDrive
+access_key_id = $E2_ACCESS_KEY_2
+secret_access_key = $E2_SECRET_2
+endpoint = $E2_ENDPOINT_2
+acl = private
 
 [vps_union]
 type = union
-upstreams = gdrive_acc1:storage gdrive_acc2:storage
+upstreams = e2_space1:$E2_BUCKET_1 e2_space2:$E2_BUCKET_2
 action_policy = epall
 create_policy = mfs
 search_policy = ff
 EOF
 
-# 4. INITIAL SMART PULL
-echo "📥 Initializing and Syncing Home state from Google Drive Union..."
-rclone mkdir gdrive_acc1:storage 2>/dev/null || true
-rclone mkdir gdrive_acc2:storage 2>/dev/null || true
+# ==========================================
+# 4. FILTER RULES DEPLOYMENT
+# ==========================================
+cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
+# 1. Explicitly allow targeted essential configurations
++ .bashrc
++ .profile
++ .opencode/**
++ .ssh/**
++ .pm2/dump.pm2
++ docker_backup/**
 
-# Structural filter pull to bring down configurations and active workspaces safely
+# 2. Block heavy runner, language, and system runtimes/caches globally
+- actions-runner/**
+- _work/**
+- **/node_modules/**
+- .npm/**
+- .nvm/**
+- .cache/**
+- .rustup/**
+- .cargo/**
+- .ghcup/**
+- .local/**
+- .dotnet/**
+
+# 3. Match all visible web applications & workspace folders
++ *
++ */**
+
+# 4. Aggressively catch and drop any other hidden root items
+- .*
+- .*/**
+EOF
+
+# ==========================================
+# 5. INITIAL STATE POOLING & RESUME
+# ==========================================
+echo "📥 Initializing and Pulling Home state from IDrive e2 Union..."
 rclone copy vps_union: /home/runner \
-    --include "/.bashrc" \
-    --include "/.profile" \
-    --include "/.opencode/**" \
-    --include "/.ssh/**" \
-    --include "/.pm2/dump.pm2" \
-    --include "/docker_backup/**" \
-    --include "*/**" \
-    --exclude "/.*/**" \
-    --exclude "/.*" \
-    --tpslimit 10 \
-    --transfers 4 \
-    --checksum --update --buffer-size 256M || echo "ℹ️ Note: Clean environment."
+    --filter-from /home/runner/.config/rclone/filter-rules.txt \
+    --checksum --update --transfers 16 --buffer-size 256M || echo "ℹ️ Note: Fresh storage environment."
 
-# 🐳 DOCKER RESUME LOGIC
+# 🐳 DOCKER RESTORE SEQUENCE
 if [ -d "/home/runner/docker_backup" ]; then
     echo "📦 Restoring local Docker volumes..."
     mkdir -p /var/lib/docker/volumes/
@@ -84,7 +117,9 @@ done
 
 touch /home/runner/.files_ready
 
-# 5. Dependency Build
+# ==========================================
+# 6. APPLICATION DEPENDENCY STAGE
+# ==========================================
 echo "📦 Installing project dependencies..."
 find /home/runner -maxdepth 4 -name "package.json" \
     -not -path "*/.*/*" \
@@ -93,62 +128,45 @@ find /home/runner -maxdepth 4 -name "package.json" \
 
 touch /home/runner/.deps_ready
 
-# 6. Persistent Aliases & Custom Filtered Push Engine
-mkdir -p /home/runner/.config/rclone
-cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
-# 1. Explicitly allow targeted essential configurations
-+ /.bashrc
-+ /.profile
-+ /.opencode/**
-+ /.ssh/**
-+ /.pm2/dump.pm2
-+ /docker_backup/**
+# ==========================================
+# 7. GLOBAL PERSISTENT COMMAND INJECTION (Fixes Code 127)
+# ==========================================
+echo "🛠️ Injecting global 'push' execution engine into system path..."
 
-# 2. Grab all visible workspace files/projects
-+ */**
+sudo cat << 'EOF' > /usr/local/bin/push
+#!/bin/bash
+echo "🛑 Safely freezing Docker containers..."
+find /home/runner -name "docker-compose.yml" -o -name "compose.yml" | while read -r compose_file; do
+    sudo docker compose -f "$compose_file" down || true
+done
 
-# 3. Aggressively drop heavy system runtimes, modules, and caches
-- /actions-runner/**
-- /_work/**
-- /**/node_modules/**
-- /.*/**
-- /.*
+mkdir -p /home/runner/docker_backup
+echo "📦 Compressing active Docker volumes..."
+sudo find /var/lib/docker/volumes/ -maxdepth 1 -mindepth 1 -not -name "metadata.db" | while read -r vol; do
+    vol_name=$(basename "$vol")
+    sudo tar -czf "/home/runner/docker_backup/${vol_name}.tar.gz" -C "$vol/_data" . 2>/dev/null || true
+done
+
+echo "📤 Copying structural workspace state to IDrive e2 Union..."
+rclone copy /home/runner vps_union: \
+    --filter-from /home/runner/.config/rclone/filter-rules.txt \
+    --checksum \
+    --fast-list \
+    --transfers 16 \
+    --ignore-errors \
+    --progress
 EOF
 
-if ! grep -q "ETERNAL_VPS_MARKER" /home/runner/.bashrc; then
-    cat <<EOF >> /home/runner/.bashrc
+# Authorize global system execution across non-interactive shell environments
+sudo chmod +x /usr/local/bin/push
 
-# --- ETERNAL_VPS_MARKER ---
+# Clean old artifacts from interactive .bashrc configs
+sed -i '/# --- ETERNAL_VPS_MARKER ---/,/# --- END_MARKER ---/d' /home/runner/.bashrc
+
+# Append core terminal shortcut aliases
+cat <<EOF >> /home/runner/.bashrc
 alias save='pm2 save --force'
 alias status='pm2 status'
-
-push() {
-    echo "🛑 Safely freezing Docker containers..."
-    find /home/runner -name "docker-compose.yml" -o -name "compose.yml" | while read -r compose_file; do
-        sudo docker compose -f "\$compose_file" down || true
-    done
-    
-    mkdir -p /home/runner/docker_backup
-    echo "📦 Compressing active Docker volumes..."
-    sudo find /var/lib/docker/volumes/ -maxdepth 1 -mindepth 1 -not -name "metadata.db" | while read -r vol; do
-        vol_name=\$(basename "\$vol")
-        sudo tar -czf "/home/runner/docker_backup/\${vol_name}.tar.gz" -C "\$vol/_data" . 2>/dev/null || true
-    done
-    
-    echo "📤 Syncing structural workspace state to Google Drive Union..."
-    # Configured to respect Google's transactions-per-second constraints completely
-    rclone sync /home/runner vps_union: \
-        --filter-from /home/runner/.config/rclone/filter-rules.txt \
-        --checksum \
-        --fast-list \
-        --transfers 4 \
-        --tpslimit 10 \
-        --low-level-retries 10 \
-        --ignore-errors \
-        --progress
-}
-# --- END_MARKER ---
 EOF
-fi
 
-echo "✅ Environment Ready. Rate-limit safe filter pipeline established."
+echo "✅ Deployment initialization successfully concluded."
