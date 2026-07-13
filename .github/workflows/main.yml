@@ -12,7 +12,7 @@ jobs:
       - name: Checkout Repository Codebase
         uses: actions/checkout@v4
 
-      - name: Run VPS Install Script & Start Runtime Monitor
+      - name: Run VPS Install Script
         env:
           E2_ACCESS_KEY_1: ${{ secrets.E2_ACCESS_KEY_1 }}
           E2_SECRET_1: ${{ secrets.E2_SECRET_1 }}
@@ -23,14 +23,20 @@ jobs:
           E2_ENDPOINT_2: ${{ secrets.E2_ENDPOINT_2 }}
           E2_BUCKET_2: ${{ secrets.E2_BUCKET_2 }}
         run: |
-          # 1. Execute the system infrastructure provisioning setup
           chmod +x install.sh
           ./install.sh
 
-          # 2. Enter the 5-Hour Active Monitoring Cycle
+      - name: Start Persistent Cloudflare Edge Tunnel
+        run: |
+          echo "🌐 Launching persistent Cloudflare Tunnel engine..."
+          # Running this in a separate action step with a simple log redirect allows GitHub to monitor it cleanly without killing it
+          cloudflared tunnel run --token eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGAiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9 > cloudflared.log 2>&1 &
+          sleep 5
+          cat cloudflared.log
+
+      - name: Enter the 5-Hour Active Monitoring Cycle
+        run: |
           echo "🛰️ VPS Active. Running 5-hour monitored runtime loop..."
-          
-          # 300 minutes = 5 hours (checking every 10 minutes)
           elapsed=0
           while [ $elapsed -lt 300 ]; do
               sleep 600
@@ -38,20 +44,14 @@ jobs:
               echo "⏱️ Heartbeat: $elapsed minutes elapsed. System alive."
           done
 
-          # 3. Time limit reached safely -> Fire the automated freeze & backup
-          echo "📦 [CRITICAL] 5-Hour mark reached safely. Initiating automated Docker freeze and Sync..."
-          
+          echo "📦 [CRITICAL] 5-Hour mark reached safely. Initiating backup..."
           if command -v pm2 &> /dev/null; then
-              echo "[PM2] Saving current process list..."
               pm2 save --force || true
           fi
           
-          # Execute the global system push command we injected in install.sh
           push
 
-          # 4. Chain Reaction: Dispatch next runner in the account chain dynamically
           echo "🔄 5-Hour cycle clear. Fetching next target from secrets..."
-          
           curl -X POST \
             -H "Authorization: token ${{ secrets.GH_PAT }}" \
             -H "Accept: application/vnd.github+json" \
