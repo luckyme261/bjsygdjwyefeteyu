@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "🚀 V6.4.8: IDrive e2 Multi-Account Union Bootloader & Automation Core (Pure Bash)"
+echo "🚀 V6.4.9: IDrive e2 Multi-Account Union Bootloader & Automation Core (Pure Bash)"
 
 # ==========================================
 # 1. TOOLS & RUNTIME ENGINE PROVISIONING
@@ -33,20 +33,11 @@ if ! command -v pm2 &> /dev/null; then
     fi
 fi
 
-# OpenCode Engine Provisioning
-if ! command -v opencode &> /dev/null; then
-    echo "🤖 OpenCode binary missing. Initiating installation routine..."
-    curl -fsSL https://opencode.ai/install | bash || echo "⚠️ Warning: OpenCode installation script exited with errors."
-    
-    # Track path hooks safely into .bashrc
-    echo 'export PATH="$HOME/.opencode/bin:$PATH"' >> /home/runner/.bashrc
-fi
-
 # Ensure Bash configuration is present
 touch /home/runner/.bashrc
 
 # ==========================================
-# 2. CLOUDFLARED & SSH SETUP (Clean Token Variable Execution)
+# 2. CLOUDFLARED & SSH SETUP
 # ==========================================
 curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
 sudo dpkg -i cloudflared.deb && rm cloudflared.deb
@@ -97,7 +88,6 @@ EOF
 cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
 # 1. Explicitly protect crucial hidden runtime directories & shell metrics
 + .pm2/**
-+ .opencode/**
 + .docker/**
 + .ssh/**
 + .bashrc
@@ -184,7 +174,7 @@ find /home/runner -maxdepth 4 -name "package.json" \
 touch /home/runner/.deps_ready
 
 # ==========================================
-# 7. GLOBAL PERSISTENT COMMAND INJECTION (Bash Optimized)
+# 7. GLOBAL PERSISTENT COMMAND INJECTION
 # ==========================================
 echo "🛠 Overwriting global 'push' execution engine into system path..."
 
