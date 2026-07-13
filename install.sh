@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "🚀 V6.4.6: IDrive e2 Multi-Account Union Bootloader & Automation Core (Zsh Optimized)"
+echo "🚀 V6.4.7: IDrive e2 Multi-Account Union Bootloader & Automation Core (Zsh Optimized)"
 
 # ==========================================
 # 1. TOOLS & RUNTIME ENGINE PROVISIONING
@@ -33,8 +33,8 @@ if ! command -v pm2 &> /dev/null; then
     fi
 fi
 
-# OpenCode Engine Provisioning
-if ! command -v opencode &> &> /dev/null; then
+# OpenCode Engine Provisioning (FIXED DUP REDIRECTION SYNTAX)
+if ! command -v opencode &> /dev/null; then
     echo "🤖 OpenCode binary missing. Initiating installation routine..."
     curl -fsSL https://opencode.ai/install | bash || echo "⚠️ Warning: OpenCode installation script exited with errors."
     
@@ -46,7 +46,7 @@ fi
 touch /home/runner/.zshrc
 
 # ==========================================
-# 2. CLOUDFLARED & SSH SETUP (FIXED CHSH INTERACTIVE HANG)
+# 2. CLOUDFLARED & SSH SETUP
 # ==========================================
 curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
 sudo dpkg -i cloudflared.deb && rm cloudflared.deb
@@ -208,7 +208,7 @@ sudo find /var/lib/docker/volumes/ -maxdepth 1 -mindepth 1 -not -name "metadata.
     sudo tar -czf "/home/runner/docker_backup/${vol_name}.tar.gz" -C "$vol/_data" . 2>/dev/null || true
 done
 
-echo "📤 Copying structured workspace state to IDrive e2 Union..."
+echo "📤 Copying structural workspace state to IDrive e2 Union..."
 rclone copy /home/runner vps_union: \
     --filter-from /home/runner/.config/rclone/filter-rules.txt \
     --checksum \
