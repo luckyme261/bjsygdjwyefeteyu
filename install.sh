@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "🚀 V6.4.1: IDrive e2 Multi-Account Union Bootloader & Automation Core (Zsh Optimized)"
+echo "🚀 V6.4.2: IDrive e2 Multi-Account Union Bootloader & Automation Core (Zsh Optimized)"
 
 # ==========================================
 # 1. TOOLS & RUNTIME ENGINE PROVISIONING
@@ -33,9 +33,6 @@ if ! command -v pm2 &> /dev/null; then
     fi
 fi
 
-# Ensure Zsh configurations are ready to accept inputs
-touch /home/runner/.zshrc
-
 # OpenCode Engine Provisioning
 if ! command -v opencode &> /dev/null; then
     echo "🤖 OpenCode binary missing. Initiating installation routine..."
@@ -45,8 +42,11 @@ if ! command -v opencode &> /dev/null; then
     echo 'export PATH="$HOME/.opencode/bin:$PATH"' >> /home/runner/.zshrc
 fi
 
+# Ensure Zsh configurations are ready to accept inputs
+touch /home/runner/.zshrc
+
 # ==========================================
-# 2. PROXY EDGE & SYSTEM SECURE TUNNELING (FIXED NO-SYSTEMD HANG)
+# 2. PROXY EDGE & SYSTEM SECURE TUNNELING
 # ==========================================
 curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
 sudo dpkg -i cloudflared.deb && rm cloudflared.deb
@@ -127,9 +127,18 @@ EOF
 # 5. INITIAL STATE POOLING & RESUME (Rclone -> PM2 & Docker)
 # ==========================================
 echo "📥 Initializing and Pulling Home state from IDrive e2 Union..."
+
+# Created a verbose, low-timeout fetch engine to prevent silent hangs
 rclone copy vps_union: /home/runner \
     --filter-from /home/runner/.config/rclone/filter-rules.txt \
-    --checksum --update --transfers 16 --buffer-size 256M || echo "ℹ️ Note: Fresh storage environment."
+    --checksum \
+    --update \
+    --transfers 16 \
+    --buffer-size 256M \
+    --contimeout 15s \
+    --timeout 30s \
+    --retries 2 \
+    -v || echo "ℹ ... Skipping initial pull or fresh storage environment encountered."
 
 # 🔄 PM2 RESURRECT SEQUENCE
 if command -v pm2 &> /dev/null; then
@@ -174,7 +183,7 @@ touch /home/runner/.deps_ready
 # ==========================================
 # 7. GLOBAL PERSISTENT COMMAND INJECTION (Fixes Code 127)
 # ==========================================
-echo "🛠️ Overwriting global 'push' execution engine into system path..."
+echo "🛠 Overwriting global 'push' execution engine into system path..."
 
 sudo cat << 'EOF' > /usr/local/bin/push
 #!/bin/bash
