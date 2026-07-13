@@ -7,7 +7,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository Codebase
         uses: actions/checkout@v4
@@ -23,13 +23,14 @@ jobs:
           E2_ENDPOINT_2: ${{ secrets.E2_ENDPOINT_2 }}
           E2_BUCKET_2: ${{ secrets.E2_BUCKET_2 }}
         run: |
-          # 1. Run the system setup
+          # 1. Execute the system infrastructure provisioning setup
           chmod +x install.sh
           ./install.sh
 
-          # 2. Start the 5-Hour Active Monitoring Cycle
+          # 2. Enter the 5-Hour Active Monitoring Cycle
           echo "🛰️ VPS Active. Running 5-hour monitored runtime loop..."
           
+          # 300 minutes = 5 hours (checking every 10 minutes)
           elapsed=0
           while [ $elapsed -lt 300 ]; do
               sleep 600
@@ -37,7 +38,7 @@ jobs:
               echo "⏱️ Heartbeat: $elapsed minutes elapsed. System alive."
           done
 
-          # 3. Time limit reached safely -> Fire freeze & backup
+          # 3. Time limit reached safely -> Fire the automated freeze & backup
           echo "📦 [CRITICAL] 5-Hour mark reached safely. Initiating automated Docker freeze and Sync..."
           
           if command -v pm2 &> /dev/null; then
@@ -45,16 +46,14 @@ jobs:
               pm2 save --force || true
           fi
           
-          # Execute global backup command
+          # Execute the global system push command we injected in install.sh
           push
 
-          # 4. Chain Reaction: Dispatch next runner in the account chain
-          # CHANGE THIS VALUE to the next target account and repo in your 5-account loop!
-          NEXT_TARGET_REPO="NEXT_GITHUB_USERNAME/NEXT_REPO_NAME"
-
-          echo "🔄 5-Hour cycle clear. Dispatching next container at $NEXT_TARGET_REPO..."
+          # 4. Chain Reaction: Dispatch next runner in the account chain dynamically
+          echo "🔄 5-Hour cycle clear. Fetching next target from secrets..."
+          
           curl -X POST \
             -H "Authorization: token ${{ secrets.GH_PAT }}" \
             -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/$NEXT_TARGET_REPO/actions/workflows/main.yml/dispatches \
+            https://api.github.com/repos/${{ secrets.NEXT_TARGET_REPO }}/actions/workflows/main.yml/dispatches \
             -d '{"ref":"main"}'
