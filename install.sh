@@ -1,45 +1,25 @@
 #!/bin/bash
-echo "🚀 V6.5.3: High-Speed Bootloader (PM2 Cloudflared Routing Core)"
+echo "🚀 V6.5.5: High-Speed Bootloader (Data Pull-First Architecture)"
 
 # ==========================================
-# 1. SSH SERVER & BASE TOOLS PROVISIONING
+# 1. CORE NETWORKING & EXTRACTION SETUP
 # ==========================================
-echo "🌐 Installing SSH Server non-interactively..."
+echo "🌐 Installing Base System Tools & SSH Server..."
 sudo apt-get update
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server jq micro htop ncdu nodejs npm > /dev/null 2>&1
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server jq micro htop ncdu > /dev/null 2>&1
 
 # Ensure SSH service is active and listening
 sudo service ssh start
 echo "runner:runner" | sudo chpasswd
 
-# Install PM2 globally to handle core network processes
-sudo npm install pm2 -g --unsafe-perm > /dev/null 2>&1
-
-# ==========================================
-# 2. PM2 CLOUDFLARED TUNNEL ENGINE
-# ==========================================
-echo "🌐 Provisioning Cloudflare Tunnel binary..."
-curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-sudo dpkg -i cloudflared.deb && rm cloudflared.deb
-
-# Token definition
-export TUNNEL_TOKEN="eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGAiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9"
-
-# Fire the tunnel using PM2 instead of nohup
-echo "⚡ Starting Cloudflare Tunnel via PM2..."
-pm2 start cloudflared --name "cf-tunnel" -- tunnel run --token "$TUNNEL_TOKEN"
-
-echo "✅ Gateway tunnel verified under PM2 management. SSH Server online."
-
-# Ensure Bash configuration is present
+# Setup Rclone immediately for data extraction step
+sudo curl https://rclone.org/install.sh | sudo bash > /dev/null 2>&1
+mkdir -p /home/runner/.config/rclone
 touch /home/runner/.bashrc
 
 # ==========================================
-# 3. DYNAMIC RCLONE MULTI-ACCOUNT UNION CONFIG
+# 2. DYNAMIC RCLONE MULTI-ACCOUNT UNION CONFIG
 # ==========================================
-mkdir -p /home/runner/.config/rclone
-sudo curl https://rclone.org/install.sh | sudo bash > /dev/null 2>&1
-
 cat <<EOF > /home/runner/.config/rclone/rclone.conf
 [e2_space1]
 type = s3
@@ -66,7 +46,7 @@ search_policy = ff
 EOF
 
 # ==========================================
-# 4. ENHANCED SYSTEM FILTER RULES DEPLOYMENT
+# 3. ENHANCED SYSTEM FILTER RULES DEPLOYMENT
 # ==========================================
 cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
 + .pm2/**
@@ -88,9 +68,9 @@ cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
 EOF
 
 # ==========================================
-# 5. INITIAL SMART PULL
+# 4. CRITICAL: INITIAL SMART PULL (RUNS FIRST)
 # ==========================================
-echo "📥 Syncing Home state from IDrive e2 Union..."
+echo "📥 Syncing Home state from IDrive e2 Union BEFORE starting runtimes..."
 rclone copy vps_union: /home/runner \
     --filter-from /home/runner/.config/rclone/filter-rules.txt \
     --checksum \
@@ -102,7 +82,31 @@ rclone copy vps_union: /home/runner \
 touch /home/runner/.files_ready
 
 # ==========================================
-# 6. DEPENDENCY STAGE
+# 5. PM2 RUNTIME ENGINE & TUNNEL INITIALIZATION
+# ==========================================
+echo "📦 Installing process registry engine..."
+sudo npm install pm2 -g --unsafe-perm > /dev/null 2>&1
+
+echo "🌐 Provisioning Cloudflare Tunnel binary..."
+curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+sudo dpkg -i cloudflared.deb && rm cloudflared.deb
+
+# Token definition
+export TUNNEL_TOKEN="eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGAiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9"
+
+echo "⚡ Starting Cloudflare Tunnel via PM2..."
+pm2 start cloudflared --name "cf-tunnel" -- tunnel run --token "$TUNNEL_TOKEN"
+
+# 🔄 PM2 RESURRECT SEQUENCE (Brings back your pulled apps safely)
+if [ -d "/home/runner/.pm2" ]; then
+    echo "⚡ Resuming active background processes via pulled PM2 dump..."
+    pm2 resurrect || echo "⚠️ Warning: No active PM2 process dump available."
+fi
+
+echo "✅ Gateway tunnel verified under PM2 management. SSH Server online."
+
+# ==========================================
+# 6. APPLICATION DEPENDENCY STAGE
 # ==========================================
 echo "📦 Checking and installing missing project dependencies..."
 find /home/runner -maxdepth 4 -name "package.json" \
@@ -117,7 +121,6 @@ touch /home/runner/.deps_ready
 # ==========================================
 sudo cat << 'EOF' > /usr/local/bin/push
 #!/bin/bash
-# Save active runner configurations but make sure we keep the tunnel protected
 if command -v pm2 &> /dev/null; then
     pm2 save --force || true
 fi
@@ -143,4 +146,4 @@ alias status='pm2 status'
 # --- END_MARKER ---
 EOF
 
-echo "✅ Environment Ready. Initial pull complete."
+echo "✅ Deployment initialization successfully concluded."
