@@ -1,149 +1,68 @@
 #!/bin/bash
-echo "🚀 V6.5.5: High-Speed Bootloader (Data Pull-First Architecture)"
+echo "🚀 V5.6: High-Speed Bootloader"
 
-# ==========================================
-# 1. CORE NETWORKING & EXTRACTION SETUP
-# ==========================================
-echo "🌐 Installing Base System Tools & SSH Server..."
-sudo apt-get update
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server jq micro htop ncdu > /dev/null 2>&1
+# 1. Tools
+sudo curl https://rclone.org/install.sh | sudo bash
+sudo apt-get update && sudo apt-get install -y jq micro htop ncdu openssh-server
 
-# Ensure SSH service is active and listening
+# 2. Cloudflared & SSH
+curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+sudo dpkg -i cloudflared.deb && rm cloudflared.deb
 sudo service ssh start
 echo "runner:runner" | sudo chpasswd
 
-# Setup Rclone immediately for data extraction step
-sudo curl https://rclone.org/install.sh | sudo bash > /dev/null 2>&1
-mkdir -p /home/runner/.config/rclone
-touch /home/runner/.bashrc
+# Run tunnel as background process (NOT service install — avoids systemd + network conflicts)
+nohup cloudflared tunnel run --token eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGEiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9 > /tmp/cloudflared.log 2>&1 &
 
-# ==========================================
-# 2. DYNAMIC RCLONE MULTI-ACCOUNT UNION CONFIG
-# ==========================================
-cat <<EOF > /home/runner/.config/rclone/rclone.conf
-[e2_space1]
+# 3. Rclone R2 Config
+mkdir -p ~/.config/rclone
+cat <<EOF > ~/.config/rclone/rclone.conf
+[r2_storage]
 type = s3
-provider = IDrive
-access_key_id = $E2_ACCESS_KEY_1
-secret_access_key = $E2_SECRET_1
-endpoint = $E2_ENDPOINT_1
+provider = Cloudflare
+access_key_id = $R2_ACCESS_KEY
+secret_access_key = $R2_SECRET_KEY
+endpoint = $R2_ENDPOINT
 acl = private
-
-[e2_space2]
-type = s3
-provider = IDrive
-access_key_id = $E2_ACCESS_KEY_2
-secret_access_key = $E2_SECRET_2
-endpoint = $E2_ENDPOINT_2
-acl = private
-
-[vps_union]
-type = union
-upstreams = e2_space1:$E2_BUCKET_1 e2_space2:$E2_BUCKET_2
-action_policy = epall
-create_policy = mfs
-search_policy = ff
 EOF
 
-# ==========================================
-# 3. ENHANCED SYSTEM FILTER RULES DEPLOYMENT
-# ==========================================
-cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
-+ .pm2/**
-+ .docker/**
-+ .ssh/**
-+ .bashrc
-+ .bash_history
-+ .profile
-- actions-runner/**
-- _work/**
-- **/node_modules/**
-- .npm/**
-- .nvm/**
-- .cache/**
-- .*
-- .*/**
-+ *
-+ */**
-EOF
-
-# ==========================================
-# 4. CRITICAL: INITIAL SMART PULL (RUNS FIRST)
-# ==========================================
-echo "📥 Syncing Home state from IDrive e2 Union BEFORE starting runtimes..."
-rclone copy vps_union: /home/runner \
-    --filter-from /home/runner/.config/rclone/filter-rules.txt \
+# 4. INITIAL SMART PULL
+echo "📥 Syncing Home state from R2..."
+# Added --transfers 16 and --buffer-size 256M for 14GB handling
+rclone copy r2_storage:$BUCKET_NAME /home/runner \
+    --exclude "actions-runner/**" \
+    --exclude "_work/**" \
+    --exclude "**/node_modules/**" \
+    --exclude ".npm/**" \
+    --exclude ".cache/**" \
     --checksum \
     --update \
     --transfers 16 \
     --buffer-size 256M \
-    --progress || echo "ℹ️ Note: Clean environment or no existing files detected."
+    --progress
 
 touch /home/runner/.files_ready
 
-# ==========================================
-# 5. PM2 RUNTIME ENGINE & TUNNEL INITIALIZATION
-# ==========================================
-echo "📦 Installing process registry engine..."
-sudo npm install pm2 -g --unsafe-perm > /dev/null 2>&1
-
-echo "🌐 Provisioning Cloudflare Tunnel binary..."
-curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-sudo dpkg -i cloudflared.deb && rm cloudflared.deb
-
-# Token definition
-export TUNNEL_TOKEN="eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGAiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9"
-
-echo "⚡ Starting Cloudflare Tunnel via PM2..."
-pm2 start cloudflared --name "cf-tunnel" -- tunnel run --token "$TUNNEL_TOKEN"
-
-# 🔄 PM2 RESURRECT SEQUENCE (Brings back your pulled apps safely)
-if [ -d "/home/runner/.pm2" ]; then
-    echo "⚡ Resuming active background processes via pulled PM2 dump..."
-    pm2 resurrect || echo "⚠️ Warning: No active PM2 process dump available."
-fi
-
-echo "✅ Gateway tunnel verified under PM2 management. SSH Server online."
-
-# ==========================================
-# 6. APPLICATION DEPENDENCY STAGE
-# ==========================================
-echo "📦 Checking and installing missing project dependencies..."
+# 5. Dependency Build
+echo "📦 Installing project dependencies..."
+# Added -maxdepth 4 just in case your projects are one folder deeper
 find /home/runner -maxdepth 4 -name "package.json" \
     -not -path "*/.*/*" \
     -not -path "*/node_modules/*" \
-    -execdir npm install --no-audit --no-fund \; 2>/dev/null || true
+    -execdir npm install --no-audit --no-fund \;
 
 touch /home/runner/.deps_ready
 
-# ==========================================
-# 7. GLOBAL PERSISTENT COMMAND INJECTION
-# ==========================================
-sudo cat << 'EOF' > /usr/local/bin/push
-#!/bin/bash
-if command -v pm2 &> /dev/null; then
-    pm2 save --force || true
-fi
+# 6. Persistent Aliases
+if ! grep -q "ETERNAL_VPS_MARKER" /home/runner/.bashrc; then
+    cat <<EOF >> /home/runner/.bashrc
 
-echo "📤 Syncing Home state back to IDrive e2 Union..."
-rclone copy /home/runner vps_union: \
-    --filter-from /home/runner/.config/rclone/filter-rules.txt \
-    --checksum \
-    --fast-list \
-    --transfers 16 \
-    --ignore-errors \
-    --progress
-EOF
-
-sudo chmod +x /usr/local/bin/push
-
-sed -i '/# --- ETERNAL_VPS_MARKER ---/,/# --- END_MARKER ---/d' /home/runner/.bashrc
-
-cat <<EOF >> /home/runner/.bashrc
 # --- ETERNAL_VPS_MARKER ---
 alias save='pm2 save --force'
+# Updated push to match V5.6 logic
+alias push='rclone sync /home/runner r2_storage:\$BUCKET_NAME --exclude "actions-runner/**" --exclude "_work/**" --exclude "**/node_modules/**" --exclude ".npm/**" --exclude ".cache/**" --checksum --fast-list --progress'
 alias status='pm2 status'
 # --- END_MARKER ---
 EOF
-
-echo "✅ Deployment initialization successfully concluded."
+fi
+echo "✅ Environment Ready. Initial pull complete."
