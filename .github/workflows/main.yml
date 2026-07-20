@@ -1,63 +1,78 @@
-name: VPS Automation and Sync Core
+name: Project-Module-V5.8-GD-Union-Docker
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
+  repository_dispatch:
+    types: [trigger_vps]
 
 jobs:
-  deploy:
+  vps-runtime:
     runs-on: ubuntu-latest
+    env:
+      # Injecting the entire JSON secret block as an environment variable
+      GD_SECRET: ${{ secrets.GD_SECRET }}
+      BUCKET_NAME: "storage"
+    
     steps:
-      - name: Checkout Repository Codebase
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run VPS Install Script & Provision Infrastructure
-        env:
-          E2_ACCESS_KEY_1: ${{ secrets.E2_ACCESS_KEY_1 }}
-          E2_SECRET_1: ${{ secrets.E2_SECRET_1 }}
-          E2_ENDPOINT_1: ${{ secrets.E2_ENDPOINT_1 }}
-          E2_BUCKET_1: ${{ secrets.E2_BUCKET_1 }}
-          E2_ACCESS_KEY_2: ${{ secrets.E2_ACCESS_KEY_2 }}
-          E2_SECRET_2: ${{ secrets.E2_SECRET_2 }}
-          E2_ENDPOINT_2: ${{ secrets.E2_ENDPOINT_2 }}
-          E2_BUCKET_2: ${{ secrets.E2_BUCKET_2 }}
+      - name: Provision & Pull
         run: |
+          sudo npm install -g pm2
           chmod +x install.sh
           ./install.sh
+          echo "/usr/local/bin" >> $GITHUB_PATH
 
-      - name: Enter the 5-Hour Active Monitoring Cycle
+      - name: Restore PM2 State
+        run: |
+          while [ ! -f /home/runner/.files_ready ]; do sleep 2; done
+          while [ ! -f /home/runner/.deps_ready ]; do sleep 2; done
+          
+          pm2 ping
+          if [ -f /home/runner/.pm2/dump.pm2 ]; then
+            pm2 resurrect || true
+            pm2 restart all --update-env || true
+          fi
+
+      - name: 5-Hour Runtime & Master Handoff
+        env:
+          NEXT_TOKEN: ${{ secrets.N_GH_TOKEN }}
+          NEXT_REPO: ${{ secrets.REPO }}
         run: |
           echo "🛰️ VPS Active. Running 5-hour monitored runtime loop..."
           
-          # 300 minutes = 5 hours (checking status updates every 10 minutes)
-          elapsed=0
-          while [ $elapsed -lt 300 ]; do
-              sleep 600
-              elapsed=$((elapsed + 10))
-              echo "⏱️ Heartbeat: $elapsed minutes elapsed. System alive."
+          # Keep the log streaming active to prevent GitHub silent timeouts
+          for i in {1..30}; do
+            sleep 600
+            echo "⏱️ Heartbeat: $((i * 10)) minutes elapsed. System alive."
           done
-
-          # ==========================================
-          # LIFECYCLE CONCLUSION: AUTOFREEZE & SYNC
-          # ==========================================
+          
           echo "📦 [CRITICAL] 5-Hour mark reached safely. Initiating automated Docker freeze and Sync..."
           
-          if command -v pm2 &> /dev/null; then
-              echo "[PM2] Saving current process registry state..."
-              pm2 save --force || true
-          fi
+          # Force the current shell to run interactively so it reads aliases/functions from .bashrc
+          source /home/runner/.bashrc
+          pm2 save --force
           
-          # Execute the global system push command injected by install.sh
+          # Run the comprehensive Docker teardown + volume backup + Rclone sync pipeline
           push
-
-          # ==========================================
-          # CHAIN DISPATCH: SPIN UP NEXT ACCOUNT
-          # ==========================================
-          echo "🔄 5-Hour cycle clear. Fetching next target from secrets..."
           
-          curl -X POST \
-            -H "Authorization: token ${{ secrets.GH_PAT }}" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/${{ secrets.NEXT_TARGET_REPO }}/actions/workflows/main.yml/dispatches \
-            -d '{"ref":"main"}'
+          if [ $? -eq 0 ]; then
+            echo "✅ Multi-drive State Sync complete. Triggering next account..."
+            curl -L -X POST \
+              -H "Authorization: token $NEXT_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/$NEXT_REPO/dispatches \
+              -d '{"event_type": "trigger_vps"}'
+            
+            echo "⏲️ Allowing 2-minute overlap for propagation..."
+            sleep 120
+            echo "🛑 Graceful shutdown complete."
+          else
+            echo "❌ Core Sync failed! Running direct fallback sync..."
+            sleep 10
+            rclone sync /home/runner vps_union: \
+              --exclude "actions-runner/**" --exclude "_work/**" \
+              --exclude "**/node_modules/**" --exclude ".npm/**" --exclude ".cache/**" \
+              --checksum --fast-list
+          fi
