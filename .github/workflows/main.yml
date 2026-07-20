@@ -9,7 +9,6 @@ jobs:
   vps-runtime:
     runs-on: ubuntu-latest
     env:
-      # Injecting the entire JSON secret block as an environment variable
       GD_SECRET: ${{ secrets.GD_SECRET }}
       BUCKET_NAME: "storage"
     
@@ -42,7 +41,6 @@ jobs:
         run: |
           echo "🛰️ VPS Active. Running 5-hour monitored runtime loop..."
           
-          # Keep the log streaming active to prevent GitHub silent timeouts
           for i in {1..30}; do
             sleep 600
             echo "⏱️ Heartbeat: $((i * 10)) minutes elapsed. System alive."
@@ -50,12 +48,10 @@ jobs:
           
           echo "📦 [CRITICAL] 5-Hour mark reached safely. Initiating automated Docker freeze and Sync..."
           
-          # Force the current shell to run interactively so it reads aliases/functions from .bashrc
-          source /home/runner/.bashrc
           pm2 save --force
           
-          # Run the comprehensive Docker teardown + volume backup + Rclone sync pipeline
-          push
+          # Directly invoking the standalone push binary
+          /usr/local/bin/push
           
           if [ $? -eq 0 ]; then
             echo "✅ Multi-drive State Sync complete. Triggering next account..."
