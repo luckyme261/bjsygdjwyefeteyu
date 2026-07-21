@@ -1,7 +1,7 @@
 #!/bin/bash
 set -eo pipefail
 
-# Print exact line number on error
+# Print exact line number and command on error
 trap 'echo "❌ Error on line $LINENO. Last command was: $BASH_COMMAND"' ERR
 
 echo "🚀 Bootloading VPS Environment with Backblaze B2 S3 Storage..."
@@ -23,6 +23,22 @@ sudo curl -s https://rclone.org/install.sh | sudo bash > /dev/null 2>&1 || true
 sudo apt-get update --fix-missing -y > /dev/null 2>&1
 sudo apt-get install -y jq micro htop ncdu openssh-server netcat-openbsd pigz > /dev/null 2>&1
 
+# Direct SSH Configuration & Key Generation (Bypasses systemd/systemctl limits)
+echo "🔑 Enabling OpenSSH Server..."
+sudo mkdir -p /var/run/sshd
+sudo ssh-keygen -A 2>/dev/null || true # Generate host keys if missing
+echo "runner:runner" | sudo chpasswd
+
+# Start sshd directly in background if service/systemctl fails
+sudo service ssh start 2>/dev/null || sudo /usr/sbin/sshd -D &
+sleep 2
+
+# Verify SSH is bound to Port 22
+if ! nc -zv 127.0.0.1 22 2>/dev/null; then
+    echo "⚠️ SSH failed to start via service. Forcing manual daemon execution..."
+    sudo /usr/sbin/sshd
+fi
+
 # Docker Engine Setup
 if ! command -v docker &> /dev/null; then
     echo "🐳 Installing Docker Engine..."
@@ -31,11 +47,6 @@ if ! command -v docker &> /dev/null; then
     sudo usermod -aG docker runner || true
     rm -f get-docker.sh
 fi
-
-# OpenSSH Server Initialization
-echo "🔑 Enabling OpenSSH Server on Port 22..."
-sudo systemctl enable --now ssh 2>/dev/null || sudo service ssh start 2>/dev/null || sudo /usr/sbin/sshd || true
-echo "runner:runner" | sudo chpasswd
 
 # Cloudflared Binary Installation
 if ! command -v cloudflared &> /dev/null; then
@@ -63,8 +74,9 @@ account = $B2_KEY_ID
 key = $B2_APPLICATION_KEY
 EOF
 
-# Write Filter Rules
+# Strict Filter Rules (System/cache exclusions + explicit dotfile inclusions)
 cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
+# --- STRICT EXCLUSIONS FIRST ---
 - /.cache/**
 - /.local/**
 - /.dotnet/**
@@ -74,8 +86,12 @@ cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
 - /**/node_modules/**
 - /actions-runner/**
 - /_work/**
+
+# Exclude temporary & socket files
 - /**/*.sock
 - /**/*.lock
+
+# Exclude generic dotfiles, EXCEPT critical configuration
 + /.bashrc
 + /.profile
 + /.ssh/**
@@ -84,10 +100,12 @@ cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
 + /docker_backup/**
 - /.*/**
 - /.*
+
+# --- EXPLICIT INCLUSIONS ---
 + /**
 EOF
 
-# Verify B2 Credentials
+# Verify B2 Connection
 echo "🔍 Testing Backblaze B2 Auth..."
 rclone lsd "b2_remote:" > /dev/null 2>&1 || {
   echo "❌ Could not authenticate with Backblaze B2. Double check B2_KEY_ID and B2_APPLICATION_KEY secrets."
