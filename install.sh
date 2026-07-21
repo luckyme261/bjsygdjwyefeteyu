@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "🚀 V5.8.3: Google Drive Union Bootloader + Standalone Push Executable"
+echo "🚀 V5.8.2: Google Drive Union Bootloader + API Stability Engine"
 
 # 1. Tools & Docker Installation
 sudo curl https://rclone.org/install.sh | sudo bash
@@ -22,10 +22,10 @@ echo "runner:runner" | sudo chpasswd
 sudo cloudflared service install eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGAiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9
 
 # 3. Dynamic Rclone Google Drive Union Config
-mkdir -p ~/.config/rclone
-echo "$GD_SECRET" > ~/.config/rclone/service_account.json
+mkdir -p /home/runner/.config/rclone
+echo "$GD_SECRET" > /home/runner/.config/rclone/service_account.json
 
-cat <<EOF > ~/.config/rclone/rclone.conf
+cat <<EOF > /home/runner/.config/rclone/rclone.conf
 [gdrive_acc1]
 type = drive
 scope = drive
@@ -92,7 +92,7 @@ find /home/runner -maxdepth 4 -name "package.json" \
 
 touch /home/runner/.deps_ready
 
-# 6. Persistent Filter Rules & Standalone System 'push' Executable
+# 6. Filter Rules & Direct Push Script
 mkdir -p /home/runner/.config/rclone
 cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
 + /.bashrc
@@ -109,8 +109,8 @@ cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
 - /.*
 EOF
 
-# Create standalone /usr/local/bin/push binary
-sudo cat << 'EOF' > /usr/local/bin/push
+# Create push.sh directly under /home/runner with full execution rights
+cat << 'EOF' > /home/runner/push.sh
 #!/bin/bash
 echo "🛑 Safely freezing Docker containers..."
 find /home/runner -name "docker-compose.yml" -o -name "compose.yml" | while read -r compose_file; do
@@ -126,6 +126,7 @@ done
 
 echo "📤 Syncing structural workspace state to Google Drive Union..."
 rclone sync /home/runner vps_union: \
+    --config /home/runner/.config/rclone/rclone.conf \
     --filter-from /home/runner/.config/rclone/filter-rules.txt \
     --checksum \
     --fast-list \
@@ -136,16 +137,16 @@ rclone sync /home/runner vps_union: \
     --progress
 EOF
 
-# Make push globally executable
-sudo chmod +x /usr/local/bin/push
+chmod +x /home/runner/push.sh
 
-# Add standard aliases to bashrc
+# Also alias it in .bashrc for manual SSH usage
 if ! grep -q "ETERNAL_VPS_MARKER" /home/runner/.bashrc; then
     cat <<EOF >> /home/runner/.bashrc
 
 # --- ETERNAL_VPS_MARKER ---
 alias save='pm2 save --force'
 alias status='pm2 status'
+alias push='/home/runner/push.sh'
 # --- END_MARKER ---
 EOF
 fi
