@@ -21,7 +21,6 @@ jobs:
           sudo npm install -g pm2
           chmod +x install.sh
           ./install.sh
-          echo "/usr/local/bin" >> $GITHUB_PATH
 
       - name: Restore PM2 State
         run: |
@@ -50,8 +49,8 @@ jobs:
           
           pm2 save --force
           
-          # Directly invoking the standalone push binary
-          /usr/local/bin/push
+          # Directly execute push.sh script path
+          /home/runner/push.sh
           
           if [ $? -eq 0 ]; then
             echo "✅ Multi-drive State Sync complete. Triggering next account..."
@@ -68,6 +67,7 @@ jobs:
             echo "❌ Core Sync failed! Running direct fallback sync..."
             sleep 10
             rclone sync /home/runner vps_union: \
+              --config /home/runner/.config/rclone/rclone.conf \
               --exclude "actions-runner/**" --exclude "_work/**" \
               --exclude "**/node_modules/**" --exclude ".npm/**" --exclude ".cache/**" \
               --checksum --fast-list
