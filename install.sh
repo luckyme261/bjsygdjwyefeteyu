@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🚀 V5.8.5: Google Drive Union Bootloader (Fixed PM2 & SSH Engine)"
+echo "🚀 V5.8.6: Google Drive Union Bootloader (Quota & Filter Hotfix)"
 
 # ==========================================
 # 1. System Tools & Docker Installation
@@ -64,27 +64,45 @@ create_policy = mfs
 search_policy = ff
 EOF
 
+# Write strict filter rules (EXCLUDES MUST COME BEFORE INCLUDES)
+cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
+# --- STRICT EXCLUSIONS FIRST ---
+- /.cache/**
+- /.local/**
+- /.dotnet/**
+- /.npm/**
+- /.cargo/**
+- /.rustup/**
+- /**/node_modules/**
+- /actions-runner/**
+- /_work/**
+- /**/*.sock
+- /**/*.lock
+
+# Exclude all hidden files/folders by default, except explicitly allowed ones
+- /.*/**
+- /.*
+
+# --- EXPLICIT INCLUSIONS ---
++ /.bashrc
++ /.profile
++ /.opencode/**
++ /.ssh/**
++ /.pm2/dump.pm2
++ /docker_backup/**
++ /**
+EOF
+
 # ==========================================
-# 3. INITIAL SMART PULL (BEFORE PM2 STARTS)
+# 3. INITIAL SMART PULL (FROM DRIVE)
 # ==========================================
-echo "📥 Initializing and Syncing Home state from Google Drive Union..."
+echo "📥 Syncing Home state from Google Drive Union..."
 rclone mkdir gdrive_acc1:storage 2>/dev/null || true
 rclone mkdir gdrive_acc2:storage 2>/dev/null || true
 
-# Explicitly exclude socket files and runtime lock files from pull
 rclone copy vps_union: /home/runner \
-    --include "/.bashrc" \
-    --include "/.profile" \
-    --include "/.opencode/**" \
-    --include "/.ssh/**" \
-    --include "/.pm2/dump.pm2" \
-    --include "/docker_backup/**" \
-    --include "*/**" \
-    --exclude "**.sock" \
-    --exclude "/.pm2/rpc.sock" \
-    --exclude "/.pm2/pub.sock" \
-    --exclude "/.*/**" \
-    --exclude "/.*" \
+    --filter-from /home/runner/.config/rclone/filter-rules.txt \
+    --skip-links \
     --tpslimit 10 \
     --transfers 4 \
     --checksum --update --buffer-size 256M || echo "ℹ️ Note: First run or clean environment."
@@ -96,7 +114,6 @@ export TUNNEL_TOKEN="eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGEiLCJ0Ijo
 
 echo "⚡ Launching Cloudflare Tunnel via PM2..."
 pm2 delete cf-tunnel 2>/dev/null || true
-# CRITICAL FIX: Wrap entire command string in quotes so PM2 passes flags properly
 pm2 start "cloudflared tunnel run --token $TUNNEL_TOKEN" --name "cf-tunnel"
 pm2 save
 
@@ -134,25 +151,8 @@ find /home/runner -maxdepth 4 -name "package.json" \
 touch /home/runner/.deps_ready
 
 # ==========================================
-# 7. FILTER RULES & GLOBAL 'push' BINARY
+# 7. STANDALONE 'push' BINARY
 # ==========================================
-mkdir -p /home/runner/.config/rclone
-cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
-+ /.bashrc
-+ /.profile
-+ /.opencode/**
-+ /.ssh/**
-+ /.pm2/dump.pm2
-+ /docker_backup/**
-+ */**
-- /**/*.sock
-- /actions-runner/**
-- /_work/**
-- /**/node_modules/**
-- /.*/**
-- /.*
-EOF
-
 echo "🛠️ Writing '/usr/local/bin/push' executable..."
 sudo tee /usr/local/bin/push > /dev/null << 'EOF'
 #!/bin/bash
@@ -170,9 +170,10 @@ sudo find /var/lib/docker/volumes/ -maxdepth 1 -mindepth 1 -not -name "metadata.
     sudo tar -czf "/home/runner/docker_backup/${vol_name}.tar.gz" -C "$vol/_data" . 2>/dev/null || true
 done
 
-echo "📤 [PUSH] Syncing structural workspace state to Google Drive Union..."
+echo "📤 [PUSH] Syncing workspace state to Google Drive Union..."
 rclone sync /home/runner vps_union: \
     --filter-from /home/runner/.config/rclone/filter-rules.txt \
+    --skip-links \
     --checksum \
     --fast-list \
     --transfers 4 \
