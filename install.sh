@@ -145,6 +145,13 @@ if [ -d "/home/runner/docker_backup" ]; then
     for archive in /home/runner/docker_backup/*.tar.gz; do
         [ -e "$archive" ] || continue
         vol_name=$(basename "$archive" .tar.gz)
+
+        # Skip system files/meta-archives
+        if [ "$vol_name" = "backingFsBlockDev" ] || [ "$vol_name" = "metadata.db" ]; then
+            continue
+        fi
+
+        echo "  └─ Unpacking volume: $vol_name"
         sudo mkdir -p "/var/lib/docker/volumes/$vol_name/_data"
         sudo tar -xzf "$archive" -C "/var/lib/docker/volumes/$vol_name/_data" 2>/dev/null || true
     done
@@ -186,7 +193,7 @@ done
 
 mkdir -p /home/runner/docker_backup
 echo "📦 [PUSH] Compressing active Docker volumes..."
-sudo find /var/lib/docker/volumes/ -maxdepth 1 -mindepth 1 -not -name "metadata.db" 2>/dev/null | while read -r vol; do
+sudo find /var/lib/docker/volumes/ -maxdepth 1 -mindepth 1 -not -name "metadata.db" -not -name "backingFsBlockDev" 2>/dev/null | while read -r vol; do
     vol_name=\$(basename "\$vol")
     sudo tar -czf "/home/runner/docker_backup/\${vol_name}.tar.gz" -C "\$vol/_data" . 2>/dev/null || true
 done
