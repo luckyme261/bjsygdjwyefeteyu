@@ -1,7 +1,16 @@
 #!/bin/bash
 set -e
 
-echo "🚀 V5.8.6: Google Drive Union Bootloader (Quota & Filter Hotfix)"
+echo "🚀 Bootloading VPS Environment with Backblaze B2 S3 Storage..."
+
+# ==========================================
+# 0. Validate Backblaze B2 Credentials
+# ==========================================
+if [ -z "$B2_KEY_ID" ] || [ -z "$B2_APPLICATION_KEY" ] || [ -z "$B2_BUCKET" ]; then
+    echo "❌ ERROR: Backblaze environment variables are missing!"
+    echo "Please set B2_KEY_ID, B2_APPLICATION_KEY, and B2_BUCKET before running."
+    exit 1
+fi
 
 # ==========================================
 # 1. System Tools & Docker Installation
@@ -39,34 +48,22 @@ if ! command -v pm2 &> /dev/null; then
 fi
 
 # ==========================================
-# 2. Dynamic Rclone Google Drive Union Config
+# 2. Configure Rclone for Backblaze B2
 # ==========================================
-echo "⚙️ Configuring Rclone Google Drive Union..."
+echo "⚙️ Configuring Rclone for Backblaze B2..."
 mkdir -p ~/.config/rclone
-echo "$GD_SECRET" > ~/.config/rclone/service_account.json
 
 cat <<EOF > ~/.config/rclone/rclone.conf
-[gdrive_acc1]
-type = drive
-scope = drive
-service_account_file = /home/runner/.config/rclone/service_account.json
-
-[gdrive_acc2]
-type = drive
-scope = drive
-service_account_file = /home/runner/.config/rclone/service_account.json
-
-[vps_union]
-type = union
-upstreams = gdrive_acc1:storage gdrive_acc2:storage
-action_policy = epall
-create_policy = mfs
-search_policy = ff
+[b2_remote]
+type = b2
+account = $B2_KEY_ID
+key = $B2_APPLICATION_KEY
+endpoint = 
 EOF
 
-# Write strict filter rules (EXCLUDES MUST COME BEFORE INCLUDES)
+# Strict Filter Rules (System/dotfile exclusions + symlinks)
 cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
-# --- STRICT EXCLUSIONS FIRST ---
+# Exclude system heavy/cache directories
 - /.cache/**
 - /.local/**
 - /.dotnet/**
@@ -76,36 +73,38 @@ cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
 - /**/node_modules/**
 - /actions-runner/**
 - /_work/**
+
+# Exclude temporary & socket files
 - /**/*.sock
 - /**/*.lock
 
-# Exclude all hidden files/folders by default, except explicitly allowed ones
+# Exclude generic dotfiles, EXCEPT critical configuration
++ /.bashrc
++ /.profile
++ /.ssh/**
++ /.opencode/**
++ /.pm2/dump.pm2
++ /docker_backup/**
 - /.*/**
 - /.*
 
-# --- EXPLICIT INCLUSIONS ---
-+ /.bashrc
-+ /.profile
-+ /.opencode/**
-+ /.ssh/**
-+ /.pm2/dump.pm2
-+ /docker_backup/**
+# Include remaining workspace content
 + /**
 EOF
 
 # ==========================================
-# 3. INITIAL SMART PULL (FROM DRIVE)
+# 3. INITIAL SMART PULL (FROM BACKBLAZE)
 # ==========================================
-echo "📥 Syncing Home state from Google Drive Union..."
-rclone mkdir gdrive_acc1:storage 2>/dev/null || true
-rclone mkdir gdrive_acc2:storage 2>/dev/null || true
+echo "📥 Syncing Home state from Backblaze B2 ($B2_BUCKET)..."
+rclone mkdir "b2_remote:$B2_BUCKET" 2>/dev/null || true
 
-rclone copy vps_union: /home/runner \
+rclone copy "b2_remote:$B2_BUCKET" /home/runner \
     --filter-from /home/runner/.config/rclone/filter-rules.txt \
     --skip-links \
-    --tpslimit 10 \
-    --transfers 4 \
-    --checksum --update --buffer-size 256M || echo "ℹ️ Note: First run or clean environment."
+    --transfers 8 \
+    --checksum \
+    --update \
+    -v || echo "ℹ️ Note: No previous backup found or bucket is empty."
 
 # ==========================================
 # 4. PM2 & CLOUDFLARED TUNNEL BOOT
@@ -154,30 +153,29 @@ touch /home/runner/.deps_ready
 # 7. STANDALONE 'push' BINARY
 # ==========================================
 echo "🛠️ Writing '/usr/local/bin/push' executable..."
-sudo tee /usr/local/bin/push > /dev/null << 'EOF'
+sudo tee /usr/local/bin/push > /dev/null << EOF
 #!/bin/bash
 set -e
 
 echo "🛑 [PUSH] Safely freezing Docker containers..."
 find /home/runner -name "docker-compose.yml" -o -name "compose.yml" | while read -r compose_file; do
-    sudo docker compose -f "$compose_file" down || true
+    sudo docker compose -f "\$compose_file" down || true
 done
 
 mkdir -p /home/runner/docker_backup
 echo "📦 [PUSH] Compressing active Docker volumes..."
 sudo find /var/lib/docker/volumes/ -maxdepth 1 -mindepth 1 -not -name "metadata.db" | while read -r vol; do
-    vol_name=$(basename "$vol")
-    sudo tar -czf "/home/runner/docker_backup/${vol_name}.tar.gz" -C "$vol/_data" . 2>/dev/null || true
+    vol_name=\$(basename "\$vol")
+    sudo tar -czf "/home/runner/docker_backup/\${vol_name}.tar.gz" -C "\$vol/_data" . 2>/dev/null || true
 done
 
-echo "📤 [PUSH] Syncing workspace state to Google Drive Union..."
-rclone sync /home/runner vps_union: \
+echo "📤 [PUSH] Syncing workspace state to Backblaze B2 ($B2_BUCKET)..."
+rclone sync /home/runner "b2_remote:$B2_BUCKET" \
     --filter-from /home/runner/.config/rclone/filter-rules.txt \
     --skip-links \
     --checksum \
     --fast-list \
-    --transfers 4 \
-    --tpslimit 10 \
+    --transfers 8 \
     --low-level-retries 10 \
     --ignore-errors \
     --progress
