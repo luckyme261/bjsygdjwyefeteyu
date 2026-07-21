@@ -1,74 +1,40 @@
-name: Project-Module-V5.8-GD-Union-Docker
+name: VPS Bootloader & Persistent Environment
 
 on:
   workflow_dispatch:
-  repository_dispatch:
-    types: [trigger_vps]
+  push:
+    branches:
+      - main
 
 jobs:
-  vps-runtime:
+  run-vps:
     runs-on: ubuntu-latest
+    timeout-minutes: 3600 # Maximum allowed job duration (60 hours)
+
+    # Expose secrets to ALL steps in this job
     env:
-      GD_SECRET: ${{ secrets.GD_SECRET }}
-      BUCKET_NAME: "storage"
-    
+      B2_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY }}
+      B2_BUCKET: ${{ secrets.B2_BUCKET }}
+
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Provision & Pull
+      - name: Make Scripts Executable
         run: |
-          sudo npm install -g pm2
-          chmod +x install.sh
+          chmod +x ./install.sh
+
+      - name: Run VPS Bootloader
+        run: |
           ./install.sh
 
-      - name: Restore PM2 State
+      - name: Keep-Alive Loop (Persistent VPS Session)
         run: |
-          while [ ! -f /home/runner/.files_ready ]; do sleep 2; done
-          while [ ! -f /home/runner/.deps_ready ]; do sleep 2; done
+          echo "🌐 VPS is now live and fully accessible via Cloudflare Tunnel SSH!"
+          echo "💡 Run 'push' inside your SSH session anytime to sync state to Backblaze B2."
           
-          pm2 ping
-          if [ -f /home/runner/.pm2/dump.pm2 ]; then
-            pm2 resurrect || true
-            pm2 restart all --update-env || true
-          fi
-
-      - name: 5-Hour Runtime & Master Handoff
-        env:
-          NEXT_TOKEN: ${{ secrets.N_GH_TOKEN }}
-          NEXT_REPO: ${{ secrets.REPO }}
-        run: |
-          echo "🛰️ VPS Active. Running 5-hour monitored runtime loop..."
-          
-          for i in {1..30}; do
-            sleep 600
-            echo "⏱️ Heartbeat: $((i * 10)) minutes elapsed. System alive."
+          # Infinite loop to keep the runner alive
+          while true; do
+            sleep 60
           done
-          
-          echo "📦 [CRITICAL] 5-Hour mark reached safely. Initiating automated Docker freeze and Sync..."
-          
-          pm2 save --force
-          
-          # Directly execute push.sh script path
-          /home/runner/push.sh
-          
-          if [ $? -eq 0 ]; then
-            echo "✅ Multi-drive State Sync complete. Triggering next account..."
-            curl -L -X POST \
-              -H "Authorization: token $NEXT_TOKEN" \
-              -H "Accept: application/vnd.github.v3+json" \
-              https://api.github.com/repos/$NEXT_REPO/dispatches \
-              -d '{"event_type": "trigger_vps"}'
-            
-            echo "⏲️ Allowing 2-minute overlap for propagation..."
-            sleep 120
-            echo "🛑 Graceful shutdown complete."
-          else
-            echo "❌ Core Sync failed! Running direct fallback sync..."
-            sleep 10
-            rclone sync /home/runner vps_union: \
-              --config /home/runner/.config/rclone/rclone.conf \
-              --exclude "actions-runner/**" --exclude "_work/**" \
-              --exclude "**/node_modules/**" --exclude ".npm/**" --exclude ".cache/**" \
-              --checksum --fast-list
-          fi
