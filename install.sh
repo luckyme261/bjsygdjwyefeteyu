@@ -141,7 +141,7 @@ pm2 save || true
 # ==========================================
 if [ -d "/home/runner/docker_backup" ]; then
     echo "📦 Restoring local Docker volumes..."
-    mkdir -p /var/lib/docker/volumes/
+    sudo mkdir -p /var/lib/docker/volumes/
     for archive in /home/runner/docker_backup/*.tar.gz; do
         [ -e "$archive" ] || continue
         vol_name=$(basename "$archive" .tar.gz)
