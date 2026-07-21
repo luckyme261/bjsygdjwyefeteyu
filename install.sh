@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "🚀 V5.8.2: Google Drive Union Bootloader + API Stability Engine"
+echo "🚀 V5.8.4: Google Drive Union Bootloader (Systemd & Rclone Filter Fix)"
 
 # 1. Tools & Docker Installation
 sudo curl https://rclone.org/install.sh | sudo bash
@@ -12,14 +12,16 @@ if ! command -v docker &> /dev/null; then
     sudo usermod -aG docker runner
 fi
 
-# 2. Cloudflared & SSH Setup
+# 2. Cloudflared & SSH Setup (Fixed Systemd Timeout)
 curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
 sudo dpkg -i cloudflared.deb && rm cloudflared.deb
 sudo service ssh start
 echo "runner:runner" | sudo chpasswd
 
-# Tunnel Token
-sudo cloudflared service install eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGAiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9
+# Start Cloudflared tunnel directly in background (No systemctl/systemd service)
+echo "⚡ Starting Cloudflare Tunnel in background..."
+export TUNNEL_TOKEN="eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGAiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9"
+nohup cloudflared tunnel run --token "$TUNNEL_TOKEN" > /dev/null 2>&1 &
 
 # 3. Dynamic Rclone Google Drive Union Config
 mkdir -p /home/runner/.config/rclone
@@ -44,23 +46,36 @@ create_policy = mfs
 search_policy = ff
 EOF
 
-# 4. INITIAL SMART PULL
+# 4. Strict Filter Rules (Prevents pulling system runner files)
+cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
++ /.bashrc
++ /.profile
++ /.opencode/**
++ /.ssh/**
++ /.pm2/dump.pm2
++ /docker_backup/**
++ */**
+- /actions-runner/**
+- /_work/**
+- /**/node_modules/**
+- /.npm/**
+- /.nvm/**
+- /.cargo/**
+- /.cache/**
+- /.*/**
+- /.*
+EOF
+
+# 5. INITIAL SMART PULL (Filtered)
 echo "📥 Initializing and Syncing Home state from Google Drive Union..."
 rclone mkdir gdrive_acc1:storage 2>/dev/null || true
 rclone mkdir gdrive_acc2:storage 2>/dev/null || true
 
 rclone copy vps_union: /home/runner \
-    --include "/.bashrc" \
-    --include "/.profile" \
-    --include "/.opencode/**" \
-    --include "/.ssh/**" \
-    --include "/.pm2/dump.pm2" \
-    --include "/docker_backup/**" \
-    --include "*/**" \
-    --exclude "/.*/**" \
-    --exclude "/.*" \
+    --config /home/runner/.config/rclone/rclone.conf \
+    --filter-from /home/runner/.config/rclone/filter-rules.txt \
     --tpslimit 10 \
-    --transfers 4 \
+    --transfers 8 \
     --checksum --update --buffer-size 256M || echo "ℹ️ Note: Clean environment."
 
 # 🐳 DOCKER RESUME LOGIC
@@ -83,7 +98,7 @@ done
 
 touch /home/runner/.files_ready
 
-# 5. Dependency Build
+# 6. Dependency Build
 echo "📦 Installing project dependencies..."
 find /home/runner -maxdepth 4 -name "package.json" \
     -not -path "*/.*/*" \
@@ -92,24 +107,7 @@ find /home/runner -maxdepth 4 -name "package.json" \
 
 touch /home/runner/.deps_ready
 
-# 6. Filter Rules & Direct Push Script
-mkdir -p /home/runner/.config/rclone
-cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
-+ /.bashrc
-+ /.profile
-+ /.opencode/**
-+ /.ssh/**
-+ /.pm2/dump.pm2
-+ /docker_backup/**
-+ */**
-- /actions-runner/**
-- /_work/**
-- /**/node_modules/**
-- /.*/**
-- /.*
-EOF
-
-# Create push.sh directly under /home/runner with full execution rights
+# 7. Direct Push Executable
 cat << 'EOF' > /home/runner/push.sh
 #!/bin/bash
 echo "🛑 Safely freezing Docker containers..."
@@ -139,7 +137,6 @@ EOF
 
 chmod +x /home/runner/push.sh
 
-# Also alias it in .bashrc for manual SSH usage
 if ! grep -q "ETERNAL_VPS_MARKER" /home/runner/.bashrc; then
     cat <<EOF >> /home/runner/.bashrc
 
@@ -151,4 +148,4 @@ alias push='/home/runner/push.sh'
 EOF
 fi
 
-echo "✅ Environment Ready. Rate-limit safe filter pipeline established."
+echo "✅ Environment Ready."
