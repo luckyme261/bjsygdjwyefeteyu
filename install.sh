@@ -12,16 +12,15 @@ if ! command -v docker &> /dev/null; then
     sudo usermod -aG docker runner
 fi
 
-# 2. Cloudflared & SSH Setup (Fixed Systemd Timeout)
+# 2. Cloudflared & SSH Setup
 curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
 sudo dpkg -i cloudflared.deb && rm cloudflared.deb
 sudo service ssh start
 echo "runner:runner" | sudo chpasswd
 
-# Start Cloudflared tunnel directly in background (No systemctl/systemd service)
-echo "⚡ Starting Cloudflare Tunnel in background..."
+# Fire the Cloudflare Tunnel via PM2 instead of systemd
 export TUNNEL_TOKEN="eyJhIjoiNDAwNmMxYTcwNmVhM2Y4NTFiMzViMWMyYTg1MDU5OGAiLCJ0IjoiMmRiZGY3MjctYzYxNC00ZTQ0LThiYTQtOTEzNGJhZjU4ZWI4IiwicyI6IlpURXpOakF3WkRNdE5ESXlZeTAwTURrMkxXSmpZamd0WkROaU5tWmxaakZqTnpBMyJ9"
-nohup cloudflared tunnel run --token "$TUNNEL_TOKEN" > /dev/null 2>&1 &
+pm2 start cloudflared --name "cf-tunnel" -- tunnel run --token "$TUNNEL_TOKEN"
 
 # 3. Dynamic Rclone Google Drive Union Config
 mkdir -p /home/runner/.config/rclone
