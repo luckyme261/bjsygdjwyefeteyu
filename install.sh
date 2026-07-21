@@ -11,7 +11,7 @@ echo "🚀 Bootloading VPS Environment with Backblaze B2 S3 Storage..."
 # ==========================================
 if [ -z "$B2_KEY_ID" ] || [ -z "$B2_APPLICATION_KEY" ] || [ -z "$B2_BUCKET" ]; then
     echo "❌ ERROR: Backblaze environment variables are missing!"
-    echo "Please set B2_KEY_ID, B2_APPLICATION_KEY, and B2_BUCKET before running."
+    echo "Please set B2_KEY_ID, B2_APPLICATION_KEY, and B2_BUCKET in GitHub Actions Secrets."
     exit 1
 fi
 
@@ -87,10 +87,10 @@ cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
 + /**
 EOF
 
-# Verify B2 Connectivity
-echo "🔍 Validating Backblaze B2 Connection..."
+# Verify B2 Credentials
+echo "🔍 Testing Backblaze B2 Auth..."
 rclone lsd "b2_remote:" > /dev/null 2>&1 || {
-  echo "❌ Failed to connect to Backblaze B2. Please check your B2_KEY_ID and B2_APPLICATION_KEY."
+  echo "❌ Could not authenticate with Backblaze B2. Double check B2_KEY_ID and B2_APPLICATION_KEY secrets."
   exit 1
 }
 
