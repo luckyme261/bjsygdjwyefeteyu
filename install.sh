@@ -61,9 +61,9 @@ key = $B2_APPLICATION_KEY
 endpoint = 
 EOF
 
-# Strict Filter Rules (System/dotfile exclusions + symlinks)
+# Strict Filter Rules (Strict exclusions first to prevent dotfile/cache sync)
 cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
-# Exclude system heavy/cache directories
+# --- STRICT EXCLUSIONS FIRST ---
 - /.cache/**
 - /.local/**
 - /.dotnet/**
@@ -88,7 +88,7 @@ cat << 'EOF' > /home/runner/.config/rclone/filter-rules.txt
 - /.*/**
 - /.*
 
-# Include remaining workspace content
+# --- EXPLICIT INCLUSIONS ---
 + /**
 EOF
 
