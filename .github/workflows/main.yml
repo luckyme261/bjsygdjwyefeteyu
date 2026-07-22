@@ -1,40 +1,63 @@
-name: VPS Bootloader & Persistent Environment
+name: Continuous Self-Healing VPS
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
+  schedule:
+    # Trigger automatically every 5 hours
+    - cron: '0 */5 * * *'
 
 jobs:
   run-vps:
     runs-on: ubuntu-latest
-    timeout-minutes: 3600 # Maximum allowed job duration (60 hours)
-
-    # Expose secrets to ALL steps in this job
-    env:
-      B2_KEY_ID: ${{ secrets.B2_KEY_ID }}
-      B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY }}
-      B2_BUCKET: ${{ secrets.B2_BUCKET }}
+    # 5 hours runtime + 15 min grace period for final sync upload
+    timeout-minutes: 315
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Make Scripts Executable
-        run: |
-          chmod +x ./install.sh
+        run: chmod +x ./install.sh
 
-      - name: Run VPS Bootloader
-        run: |
-          ./install.sh
+      - name: Run Bootloader Setup
+        env:
+          B2_KEY_ID: ${{ secrets.B2_KEY_ID }}
+          B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY }}
+          B2_BUCKET: ${{ secrets.B2_BUCKET }}
+        run: ./install.sh
 
-      - name: Keep-Alive Loop (Persistent VPS Session)
+      - name: 5-Hour Keep-Alive Timer
         run: |
-          echo "🌐 VPS is now live and fully accessible via Cloudflare Tunnel SSH!"
-          echo "💡 Run 'push' inside your SSH session anytime to sync state to Backblaze B2."
+          echo "⏱️ VPS initialized. Holding session active for EXACTLY 5 hours..."
           
-          # Infinite loop to keep the runner alive
+          # Target duration: 5 hours * 3600 seconds = 18000 seconds
+          TARGET_SECONDS=18000
+          START_TIME=$(date +%s)
+          
           while true; do
+            CURRENT_TIME=$(date +%s)
+            ELAPSED=$(( CURRENT_TIME - START_TIME ))
+            REMAINING=$(( TARGET_SECONDS - ELAPSED ))
+            
+            if [ $ELAPSED -ge $TARGET_SECONDS ]; then
+              echo "⏰ 5 Hours reached! Exiting loop to start automated backup..."
+              break
+            fi
+            
+            # Print remaining time every 15 minutes
+            MINS_LEFT=$(( REMAINING / 60 ))
+            echo "⌛ System operational. Time remaining: ${MINS_LEFT} minutes..."
+            
+            # Sleep in short 60-second intervals for responsive timer checks
             sleep 60
           done
+
+      - name: Execute Automated 5-Hour B2 Sync
+        if: always()
+        env:
+          B2_KEY_ID: ${{ secrets.B2_KEY_ID }}
+          B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY }}
+          B2_BUCKET: ${{ secrets.B2_BUCKET }}
+        run: |
+          echo "📤 Starting automated state sync to Backblaze B2..."
+          sudo /usr/local/bin/push
