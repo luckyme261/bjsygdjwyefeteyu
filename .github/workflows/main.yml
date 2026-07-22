@@ -1,15 +1,15 @@
-name: Continuous Self-Healing VPS
+name: Continuous proj
 
 on:
   workflow_dispatch:
   schedule:
-    # Trigger automatically every 5 hours
+    # Backup trigger every 5 hours
     - cron: '0 */5 * * *'
 
 jobs:
   run-vps:
     runs-on: ubuntu-latest
-    # 5 hours runtime + 15 min grace period for final sync upload
+    # 5 hours runtime + 15 minutes safety margin for final sync upload
     timeout-minutes: 315
 
     steps:
@@ -28,7 +28,7 @@ jobs:
 
       - name: 5-Hour Keep-Alive Timer
         run: |
-          echo "⏱️ VPS initialized. Holding session active for EXACTLY 5 hours..."
+          echo "⏱️ initialized. Holding session active for EXACTLY 5 hours..."
           
           # Target duration: 5 hours * 3600 seconds = 18000 seconds
           TARGET_SECONDS=18000
@@ -44,12 +44,16 @@ jobs:
               break
             fi
             
-            # Print remaining time every 15 minutes
             MINS_LEFT=$(( REMAINING / 60 ))
             echo "⌛ System operational. Time remaining: ${MINS_LEFT} minutes..."
             
-            # Sleep in short 60-second intervals for responsive timer checks
-            sleep 60
+            # Sleep in 30-minute intervals (1800 seconds) or remaining time
+            SLEEP_TIME=1800
+            if [ $REMAINING -lt $SLEEP_TIME ]; then
+              SLEEP_TIME=$REMAINING
+            fi
+            
+            sleep $SLEEP_TIME
           done
 
       - name: Execute Automated 5-Hour B2 Sync
@@ -60,4 +64,12 @@ jobs:
           B2_BUCKET: ${{ secrets.B2_BUCKET }}
         run: |
           echo "📤 Starting automated state sync to Backblaze B2..."
-          sudo /usr/local/bin/push
+          sudo /usr/local/bin/push || true
+
+      - name: Trigger Next VPS Iteration
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🔄 Relaunching VPS workflow for seamless continuation..."
+          gh workflow run main.yml || true
